@@ -1,0 +1,190 @@
+﻿/*
+ *******************************************************************************
+ * 해당 소스는 현장 유지 보수 외에 다른 목적의 사용을 금합니다.
+ * - 주식회사 태루 -
+ *******************************************************************************
+ */
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Threading;
+
+namespace KeocGrabber
+{
+    internal class TCPIPClient
+    {
+        Func<string, bool> delMsgAnaly = null;
+
+        public Func<string, bool> MsgAnalyzer { set { delMsgAnaly = value; } }
+
+        TcpClient client = null;
+        string strIP;
+        string strPort;
+        bool bSend = false;
+        const int nMaxBufferCount = 1024;
+        Thread clientThread = null;
+        NetworkStream stream = null;
+
+        bool bIsConnected = false;
+        bool bFinalize = false;
+
+        public bool IsConnected { get { return bIsConnected; } set { bIsConnected = value; } }
+        //public bool IsConnected { get { return client != null ? client.Connected : false; } }
+
+        public void fn_Init(string IP, int port)
+        {
+            strIP = IP;
+            strPort = port.ToString();
+
+            //bFinalize = true;
+            bSend = true;
+            clientThread = new Thread(new ThreadStart(SendAsClient));
+            clientThread.IsBackground = true;
+            clientThread.Start();
+
+            G.WriteLog($"TCP/IP Init. {strIP}:{strPort}");
+        }
+
+        public void fn_Final()
+        {
+            if (clientThread != null)
+            {
+                bFinalize = true;
+                bSend = false;
+                if (!clientThread.Join(3000))
+                    clientThread.Abort();
+
+                if (client != null)
+                {
+                    client.Close();
+                    client.Dispose();
+                    client = null;
+                }
+            }
+            G.WriteLog($"TCP/IP Final.");
+        }
+        string m_strMsgBuff = "";
+        private void SendAsClient()
+        {
+            int nReconnectTime = 0;
+            const int TIMEOUT = 10000;
+            const int SLEEP = 10;
+            while (true)
+            {
+                try
+                {
+                    if (bFinalize)
+                    {
+                        throw new Exception("Finalize TCP/IP");
+                    }
+                    if (client != null)
+                    {
+                        client.Close();
+                        client.Dispose();
+                        //return;
+                    }
+                    client = new TcpClient();
+                    //SetKeepAlive(client.Client);
+                    
+                    client.Connect(IPAddress.Parse(strIP), Convert.ToInt32(strPort));
+                    stream = client.GetStream();
+                    
+                    byte[] message = new byte[nMaxBufferCount];
+                    byte[] buff = new byte[nMaxBufferCount];
+                    string strMsg;
+                    int byteRead;
+                    string strRecvMsg;
+                    G.WriteLog($"{strIP}:{strPort} [{client.Client.LocalEndPoint}] Connected");
+
+                    //G.GIGABOARD.fn_LinkCheck();
+                    //G.WriteLog($"Node Result ch1 : 0x{G.GIGABOARD.LinkNodeCh1:X} ch2 : 0x{G.GIGABOARD.LinkNodeCh2:X}");
+
+                    nReconnectTime = 0;
+                    m_strMsgBuff = "";
+                    while (bSend)
+                    {
+                        if (!IsConnected)
+                        {
+                            nReconnectTime++;
+                        }
+
+                        if (stream.DataAvailable)
+                        {
+                            byteRead = stream.Read(message, 0, message.Length);
+
+
+                            strRecvMsg = Encoding.Unicode.GetString(message).Substring(0, (int)(byteRead / 2.0));
+
+                            //G.WriteLog($"_____Raw Recv Msg : {strRecvMsg.Replace("\n", "")}");
+                            // Message Callback
+                            m_strMsgBuff += strRecvMsg;
+                        }
+                        int idx = m_strMsgBuff.IndexOf('\0');
+                        if (idx > 0)
+                        {
+                            strMsg = m_strMsgBuff.Substring(0, idx);
+                            m_strMsgBuff = m_strMsgBuff.Substring(idx + 1);
+
+                            delMsgAnaly?.Invoke(strMsg);
+                        }
+                        else
+                        {
+                            Thread.Sleep(SLEEP);
+                        }
+
+                        // 재연결시 5초 대기.
+                        if (nReconnectTime * SLEEP > TIMEOUT)
+                        {
+                            G.WriteLog($"Heart-Beat Time-Out.[{TIMEOUT} ms] Try Reconnection. ");
+                            break;
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e.Message);
+                    Thread.Sleep(3000);
+                }
+                finally
+                {
+                    stream?.Close();
+                    client?.Close();
+                }
+            }
+        }
+
+        private void SetKeepAlive(Socket sock)
+        {
+            sock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            MemoryStream ms = new MemoryStream(sizeof(uint) * 3);
+            ms.Write(BitConverter.GetBytes((int)1), 0, sizeof(int));
+            ms.Write(BitConverter.GetBytes((int)2000), 0, sizeof(int));
+            ms.Write(BitConverter.GetBytes((int)1000), 0, sizeof(int));
+            sock.IOControl(IOControlCode.KeepAliveValues, ms.GetBuffer(), BitConverter.GetBytes(0));
+            ms.Close();
+        }
+
+        public void SendMessage(string strMsg)
+        {
+            try
+            {
+                byte[] buffer = new byte[nMaxBufferCount];
+                byte[] msg = Encoding.Unicode.GetBytes(strMsg);
+                Array.Copy(msg, buffer, msg.Length);
+
+                if (stream != null)
+                    stream.Write(buffer, 0, buffer.Length);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
+        }
+    }
+}

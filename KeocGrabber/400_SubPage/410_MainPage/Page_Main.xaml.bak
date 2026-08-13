@@ -1,0 +1,190 @@
+﻿<Page x:Class="KeocGrabber.Page_Main"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+      xmlns:local="clr-namespace:KeocGrabber"
+      xmlns:uc="clr-namespace:FalconWpf"
+      mc:Ignorable="d" 
+      d:DesignHeight="604" d:DesignWidth="1260"
+      Title="Page_Main">
+
+    <Page.DataContext>
+        <local:Page_MainDataContext x:Name="datacontext"/>
+    </Page.DataContext>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="3*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="1*"/>
+        </Grid.ColumnDefinitions>
+        <UniformGrid x:Name="CamGrid" Columns="2" Rows="2">
+            <GroupBox x:Name="Cam1Viewer">
+                <GroupBox.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="FRONT (CAM1)" Margin="3,0"/>
+                        <uc:UserButton Content="View" CornerRadius="3" Click="bn_Cam1ViewImage_Click"/>
+                        <uc:UserButton Content="Clear" CornerRadius="3"  Click="bn_Cam1ViewClear_Click"/>
+                    </StackPanel>
+                </GroupBox.Header>
+                <uc:ImageViewer x:Name="imgview1"/>
+            </GroupBox>
+            <GroupBox x:Name="Cam4Viewer">
+                <GroupBox.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="REAR (CAM4)" Margin="3,0"/>
+                        <uc:UserButton Content="View" CornerRadius="3" Click="bn_Cam4ViewImage_Click"/>
+                        <uc:UserButton Content="Clear" CornerRadius="3" Click="bn_Cam4ViewClear_Click"/>
+                    </StackPanel>
+                </GroupBox.Header>
+                <uc:ImageViewer x:Name="imgview4"/>
+            </GroupBox>
+            <GroupBox x:Name="Cam2Viewer">
+                <GroupBox.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="IN SIDE (CAM2)" Margin="3,0"/>
+                        <uc:UserButton Content="View" CornerRadius="3" Click="bn_Cam2ViewImage_Click"/>
+                        <uc:UserButton Content="Clear" CornerRadius="3" Click="bn_Cam2ViewClear_Click"/>
+                    </StackPanel>
+                </GroupBox.Header>
+                <uc:ImageViewer x:Name="imgview2"/>
+            </GroupBox>
+            <GroupBox x:Name="Cam3Viewer">
+                <GroupBox.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="OUT SIDE (CAM3)" Margin="3,0"/>
+                        <uc:UserButton Content="View" CornerRadius="3" Click="bn_Cam3ViewImage_Click"/>
+                        <uc:UserButton Content="Clear" CornerRadius="3" Click="bn_Cam3ViewClear_Click"/>
+                    </StackPanel>
+                </GroupBox.Header>
+                <uc:ImageViewer x:Name="imgview3"/>
+            </GroupBox>
+        </UniformGrid>
+        <GridSplitter Grid.Column="1" Width="3" HorizontalAlignment="Stretch"/>
+        <Grid Grid.Column="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="{Binding TestBtnHeight}"/>
+                <RowDefinition Height="60"/>
+                <RowDefinition Height="60"/>
+                <RowDefinition Height="60"/>
+                <RowDefinition Height="4*"/>
+                <RowDefinition Height="50"/>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+                <UniformGrid Rows="1">
+                    <uc:UserButton Content="Manual Grab Start" Click="bn_ManualGrab_Click" CornerRadius="3" Margin="3" IsEnabled="{Binding IsGrabStop}"/>
+                    <uc:UserButton Content="Test" Click="bn_Test_Click" CornerRadius="3" Margin="3"/>
+                </UniformGrid>
+                <!--
+                <UniformGrid Rows="1">
+                    <uc:UserButton Content="Test Grab" Click="bn_testgrab_click"/>
+                    <uc:UserButton Content="Test Grab Stop" Click="bn_testgrabstop_click"/>
+                    <uc:UserButton Content="Test Save" Click="bn_testsave_click"/>
+                </UniformGrid>
+                -->
+            </Grid>
+            <Grid Grid.Row="1">
+                <Frame Grid.Row="1" NavigationUIVisibility="Hidden" Content="{Binding PageProcess}"/>
+            </Grid>
+            <Grid Grid.Row="2">
+                <GroupBox Header="CellID">
+                    <TextBlock Text="{Binding CellID}" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </GroupBox>
+            </Grid>
+            <Grid Grid.Row="3">
+                <GroupBox Header="GrabState">
+                    <UniformGrid Rows="1">
+                        <GroupBox Header="FRONT" TextBlock.FontSize="8" MouseDoubleClick="GrabState1_MouseDoubleClick">
+                            <Border>
+                                <Border.Style>
+                                    <Style TargetType="{x:Type Border}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Cam1Grab}" Value="Wait">
+                                                <Setter Property="Background" Value="{StaticResource NGBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Cam1Grab}" Value="Compl">
+                                                <Setter Property="Background" Value="{StaticResource OKBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding Cam1Grab}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </GroupBox>
+                        <GroupBox Header="REAR" TextBlock.FontSize="8" MouseDoubleClick="GrabState2_MouseDoubleClick">
+                            <Border>
+                                <Border.Style>
+                                    <Style TargetType="{x:Type Border}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Cam2Grab}" Value="Wait">
+                                                <Setter Property="Background" Value="{StaticResource NGBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Cam2Grab}" Value="Compl">
+                                                <Setter Property="Background" Value="{StaticResource OKBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding Cam2Grab}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </GroupBox>
+                        <GroupBox Header="IN SIDE" TextBlock.FontSize="8" MouseDoubleClick="GrabState3_MouseDoubleClick">
+                            <Border>
+                                <Border.Style>
+                                    <Style TargetType="{x:Type Border}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Cam3Grab}" Value="Wait">
+                                                <Setter Property="Background" Value="{StaticResource NGBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Cam3Grab}" Value="Compl">
+                                                <Setter Property="Background" Value="{StaticResource OKBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding Cam3Grab}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </GroupBox>
+                        <GroupBox Header="OUT SIDE" TextBlock.FontSize="8" MouseDoubleClick="GrabState4_MouseDoubleClick">
+                            <Border>
+                                <Border.Style>
+                                    <Style TargetType="{x:Type Border}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Cam4Grab}" Value="Wait">
+                                                <Setter Property="Background" Value="{StaticResource NGBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Cam4Grab}" Value="Compl">
+                                                <Setter Property="Background" Value="{StaticResource OKBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding Cam4Grab}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </GroupBox>
+                    </UniformGrid>
+                </GroupBox>
+            </Grid>
+            <Grid Grid.Row="4">
+                <GroupBox Header="Log">
+                    <ListBox Name="listLog"/>
+                </GroupBox>
+            </Grid>
+            <Grid Grid.Row="5">
+                <GroupBox Header="I/O Status">
+                    <UniformGrid  Rows="1">
+                        <TextBlock Text="CAM1" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        <Ellipse x:Name="IO_CAM1" Width="20" Height="20" Fill="Gray" Stroke="Black" StrokeThickness="1" />
+                        <TextBlock Text="CAM2" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        <Ellipse x:Name="IO_CAM2" Width="20" Height="20" Fill="Gray" Stroke="Black" StrokeThickness="1" />
+                        <TextBlock Text="CAM3" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        <Ellipse x:Name="IO_CAM3" Width="20" Height="20" Fill="Gray" Stroke="Black" StrokeThickness="1" />
+                        <TextBlock Text="CAM4" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        <Ellipse x:Name="IO_CAM4" Width="20" Height="20" Fill="Gray" Stroke="Black" StrokeThickness="1" />
+                    </UniformGrid>
+                </GroupBox>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

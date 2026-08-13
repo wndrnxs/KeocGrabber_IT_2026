@@ -1,0 +1,28 @@
+﻿<Page x:Class="KeocGrabber.Page_Authority"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+      xmlns:local="clr-namespace:KeocGrabber"
+      xmlns:uc="clr-namespace:FalconWpf"
+      mc:Ignorable="d" 
+      d:DesignHeight="450" d:DesignWidth="800"
+      Title="Page_Authority">
+
+    <Page.DataContext>
+        <local:Page_AutorityDataContext x:Name="datacontext"/>
+    </Page.DataContext>
+
+    <GroupBox Header="Authority"  Background="{Binding UserBrush}">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition/>
+                <ColumnDefinition/>
+                <ColumnDefinition/>
+            </Grid.ColumnDefinitions>
+            <Label Grid.Column="0" Content="Level :" VerticalContentAlignment="Center" HorizontalContentAlignment="Center"/>
+            <Label Grid.Column="1" Content="{Binding AuthLevel}" VerticalContentAlignment="Center" HorizontalContentAlignment="Center"/>
+            <uc:UserButton Grid.Column="3" Content="Change" CornerRadius="5" Click="bn_Authority_Click"/>
+        </Grid>
+    </GroupBox>
+</Page>

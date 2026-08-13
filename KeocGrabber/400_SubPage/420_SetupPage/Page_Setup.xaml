@@ -1,0 +1,350 @@
+﻿<Page x:Class="KeocGrabber.Page_Setup"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+      xmlns:local="clr-namespace:KeocGrabber"
+      xmlns:uc="clr-namespace:FalconWpf"
+      xmlns:sys="clr-namespace:System;assembly=mscorlib"
+      mc:Ignorable="d" 
+      d:DesignHeight="604" d:DesignWidth="1260"
+      Title="Page_Setup" Loaded="Page_Loaded">
+
+    <Page.DataContext>
+        <local:Page_SetupDataContext x:Name="datacontext"/>
+    </Page.DataContext>
+    <Page.Resources>
+        <x:Array x:Key="CBItemsCamera" Type="sys:String">
+            <sys:String>FRONT CAM (CAM1)</sys:String>
+            <sys:String>IN SIDE CAM (CAM2)</sys:String>
+            <sys:String>OUT SIDE CAM (CAM3)</sys:String>
+            <sys:String>REAR CAM (CAM4)</sys:String>
+        </x:Array>
+        <x:Array x:Key="CBItemsLightCtrl" Type="sys:String">
+            <sys:String>FRONT</sys:String>
+            <sys:String>REAR</sys:String>
+            <sys:String>OUT SIDE</sys:String>
+            <sys:String>IN SIDE</sys:String>
+        </x:Array>
+        <x:Array x:Key="CBItemsLightChannel" Type="sys:String">
+            <sys:String>Ch 1</sys:String>
+            <sys:String>Ch 2</sys:String>
+            <sys:String>Ch 3</sys:String>
+            <sys:String>Ch 4</sys:String>
+            <sys:String>Ch 5</sys:String>
+            <sys:String>Ch 6</sys:String>
+        </x:Array>
+    </Page.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition/>
+            <ColumnDefinition Width="{Binding TestCtrlWidth}"/>
+        </Grid.ColumnDefinitions>
+        <GroupBox Header="Recipe">
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="50"/>
+                    <RowDefinition/>
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="3*"/>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="{Binding RecipePath, StringFormat=Recipe Name : {0}}" VerticalAlignment="Center" Margin="10,0"/>
+                            <TextBlock Grid.Row="1" Text="{Binding RecipeWriteTime, StringFormat=WriteTime : {0}}" VerticalAlignment="Center" Margin="10,0"/>
+                        </Grid>
+                        <UniformGrid Grid.Column="1" Rows="1">
+                            <UniformGrid Columns="1">
+                                <uc:UserButton Content="Open" FontSize="12" Click="bn_Open_Click" Margin="3" CornerRadius="3" ToolTip="Default Path : C:\KEOC\Recipe\"/>
+                                <uc:UserButton Content="Save" FontSize="12" Click="bn_Save_Click" Margin="3" CornerRadius="3" ToolTip="Default Path : C:\KEOC\Recipe\"/>
+                            </UniformGrid>
+                            <uc:UserButton Content="Set Recipe" FontSize="16" FontWeight="Bold" Click="bn_SetRecipe_Click" Margin="3" CornerRadius="3" IsEnabled="{Binding IsRecipeLoaded}"/>
+                        </UniformGrid>
+                        <Grid Grid.Column="2" Margin="0,-5,0,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition/>
+                            </Grid.RowDefinitions>
+                            <uc:UserParam UPTitle="Manual Time-Out : " UPUnit="min" UPUnitWidth="25" UPValueWidth="80" UPValue="{Binding ManualRecipeTimeOut, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="'Manual Recipe' CheckBox의 자동 해제 시간입니다.&#10;-------------------------------------------------------&#10;Thời gian tự động tắt của CheckBox 'Manual Recipe'."/>
+                            <uc:UserButton CornerRadius="3" Margin="0,0,0,3" Grid.Row="1" Content="Load Curr Recipe" Click="bn_CurrentRecipe_Click" ToolTip="현재 로딩 되어 있는 Recipe를 Setup탭으로 불러옵니다.&#10;----------------------------------------------------------&#10;Gọi Recipe đang tải hiện tại vào Setup tab."/>
+                            <!--<CheckBox Grid.Row="1" Content="Cam Index Mapping" VerticalAlignment="Center"/>-->
+                        </Grid>
+                    </Grid>
+                </Grid>
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition/>
+                        <ColumnDefinition/>
+                    </Grid.ColumnDefinitions>
+                    <Grid Grid.Column="0">
+                        <GroupBox Header="ROI">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="50"/>
+                                    <RowDefinition/>
+                                </Grid.RowDefinitions>
+                                <GroupBox >
+                                    <GroupBox.Header>
+                                        <WrapPanel>
+                                            <TextBlock Text="Camera Select"/>
+                                            <uc:UserButton Content="Camera Config" Click="bn_CamConfig_Click" Padding="0" Margin="10,0,0,0" CornerRadius="3" Width="100"/>
+                                        </WrapPanel>
+                                    </GroupBox.Header>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*"/>
+                                            <ColumnDefinition Width="1*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <uc:UserCombo UCBTitle="Camera" UCBUnitWidth="0" UCBTitleWidth="80" UCBItemSource="{Binding CameraItems}" UCBSelectedIndex="{Binding CamIndex, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <UniformGrid Grid.Column="1" Rows="1">
+                                            <uc:UserButton Content="Grab" Click="bn_Grab_Click" CornerRadius="3" Margin="3" IsEnabled="{Binding IsGrabable}"/>
+                                            <uc:UserButton Content="Stop" Click="bn_Stop_Click" CornerRadius="3" Margin="3" IsEnabled="{Binding IsGrabbing}"/>
+                                        </UniformGrid>
+                                    </Grid>
+                                </GroupBox>
+                                <uc:ImageViewer Grid.Row="1" x:Name="imgview" IsEditor="True"/>
+                            </Grid>
+                        </GroupBox>
+                    </Grid>
+                    <Grid Grid.Column="2">
+                        <Grid.RowDefinitions>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                        </Grid.RowDefinitions>
+                        <TabControl Grid.Row="0">
+                            <TabItem Header="CAM SETTING">
+                                <GroupBox  Header="Camera Setting" x:Name="Tab_Cam">
+                                    <UniformGrid>
+                                        <GroupBox Header="FRONT CAM" x:Name="CAM1_Option">
+                                            <UniformGrid Columns="1">
+                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="255" USTickFrequency="25" USValueWidth="40" USTitleWidth="100"/>
+                                                <uc:UserSlider USTitle="Gain" USValue="{Binding CamGain1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="1" USMaximum="10" USTickFrequency="0.1" USValueWidth="40" USTitleWidth="100"/>
+                                            </UniformGrid>
+                                        </GroupBox>
+                                        <GroupBox Header="REAR CAM" x:Name="CAM2_Option">
+                                            <UniformGrid Columns="1">
+                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="255" USTickFrequency="25" USValueWidth="40" USTitleWidth="100"/>
+                                                <uc:UserSlider USTitle="Gain" USValue="{Binding CamGain2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="1" USMaximum="10" USTickFrequency="0.1" USValueWidth="40" USTitleWidth="100"/>
+                                            </UniformGrid>
+                                        </GroupBox>
+                                        <GroupBox Header="IN SIDE CAM" x:Name="CAM3_Option">
+                                            <UniformGrid Columns="1">
+                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure3, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="255" USTickFrequency="25" USValueWidth="40" USTitleWidth="100"/>
+                                                <uc:UserSlider USTitle="Gain" USValue="{Binding CamGain3, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="1" USMaximum="10" USTickFrequency="0.1" USValueWidth="40" USTitleWidth="100"/>
+                                            </UniformGrid>
+                                        </GroupBox>
+                                        <GroupBox Header="OUT SIDE CAM" x:Name="CAM4_Option">
+                                            <UniformGrid Columns="1">
+                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure4, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="255" USTickFrequency="25" USValueWidth="40" USTitleWidth="100"/>
+                                                <uc:UserSlider USTitle="Gain" USValue="{Binding CamGain4, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="1" USMaximum="10" USTickFrequency="0.1" USValueWidth="40" USTitleWidth="100"/>
+                                            </UniformGrid>
+                                        </GroupBox>
+                                    </UniformGrid>
+                                </GroupBox>
+                            </TabItem>
+                            <TabItem Header="ROI SETTING" x:Name="Tab_ROI">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="50"/>
+                                        <RowDefinition/>
+                                    </Grid.RowDefinitions>
+                                    <GroupBox Grid.Row="0" Header="ROI ALIGN">
+                                        <Grid >
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                <Button Click="bn_ROIAlign_Click" Tag="1" ToolTip="Align Left">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_left.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Button Click="bn_ROIAlign_Click" Tag="2" ToolTip="Align Center">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_center.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Button Click="bn_ROIAlign_Click" Tag="3" ToolTip="Align Right">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_right.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Border Width="10"/>
+                                                <Button Click="bn_ROIAlign_Click" Tag="4" ToolTip="Align Top">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_top.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Button Click="bn_ROIAlign_Click" Tag="5" ToolTip="Align Middle">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_middle.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Button Click="bn_ROIAlign_Click" Tag="6" ToolTip="Align Bottom">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_bottom.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Border Width="10"/>
+                                                <Button Click="bn_ROIAlign_Click" Tag="7" ToolTip="fitting height">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_size_vertical.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Button Click="bn_ROIAlign_Click" Tag="8" ToolTip="fitting width">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_size_horizontal.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                    </GroupBox>
+                                    <GroupBox Grid.Row="1" Header="ROI OFFSET">
+                                        <DataGrid x:Name="ROI_DataGrid" Padding="0,0,0,0"  ItemsSource="{Binding DTCropROI, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource DataGridStyle}" SelectedIndex="{Binding SelectedROI, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PreviewMouseUp="DataGrid_PreviewMouseDown" Height="150" VerticalAlignment="Top">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Header="CellID" Binding="{Binding CellID}" Width="1*"/>
+                                                <DataGridTextColumn Header="X"      Binding="{Binding X}"      Width="1*"/>
+                                                <DataGridTextColumn Header="Y"      Binding="{Binding Y}"      Width="1*"/>
+                                                <DataGridTextColumn Header="Width"  Binding="{Binding Width}"  Width="1*"/>
+                                                <DataGridTextColumn Header="Height" Binding="{Binding Height}" Width="1*"/>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                    </GroupBox>
+                                </Grid>
+                            </TabItem>
+                            <!--<TabItem Header="REAR ROI">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="50"/>
+                                        <RowDefinition/>
+                                    </Grid.RowDefinitions>
+                                    <GroupBox Grid.Row="0" Header="ROI ALIGN">
+                                        <Grid >
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                <Button Click="bn_ROIAlign_Click" Tag="1" ToolTip="Align Left">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_left.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Button Click="bn_ROIAlign_Click" Tag="2" ToolTip="Align Center">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_center.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Button Click="bn_ROIAlign_Click" Tag="3" ToolTip="Align Right">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_right.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Border Width="10"/>
+                                                <Button Click="bn_ROIAlign_Click" Tag="4" ToolTip="Align Top">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_top.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Button Click="bn_ROIAlign_Click" Tag="5" ToolTip="Align Middle">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_middle.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Button Click="bn_ROIAlign_Click" Tag="6" ToolTip="Align Bottom">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_align_bottom.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Border Width="10"/>
+                                                <Button Click="bn_ROIAlign_Click" Tag="7" ToolTip="fitting height">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_size_vertical.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                                <Button Click="bn_ROIAlign_Click" Tag="8" ToolTip="fitting width">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Source="/icons/objects_size_horizontal.png"/>
+                                                    </DockPanel>
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                    </GroupBox>
+                                    <GroupBox Grid.Row="1" Header="ROI AREA">
+                                        <DataGrid Padding="0,0,0,0"  ItemsSource="{Binding DTCropROI, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource DataGridStyle}" SelectedIndex="{Binding SelectedROI, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PreviewMouseUp="DataGrid_PreviewMouseDown" Height="150" VerticalAlignment="Top">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Header="CellID" Binding="{Binding CellID}" Width="1*"/>
+                                                <DataGridTextColumn Header="X"      Binding="{Binding X}"      Width="1*"/>
+                                                <DataGridTextColumn Header="Y"      Binding="{Binding Y}"      Width="1*"/>
+                                                <DataGridTextColumn Header="Width"  Binding="{Binding Width}"  Width="1*"/>
+                                                <DataGridTextColumn Header="Height" Binding="{Binding Height}" Width="1*"/>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                    </GroupBox>
+                                </Grid>
+                            </TabItem>-->
+                        </TabControl>
+                        <GroupBox Grid.Row="2">
+                            <GroupBox.Header>
+                                <WrapPanel>
+                                    <TextBlock Text="Light Setting" VerticalAlignment="Center"/>
+                                    <uc:UserButton Content="Light On All" CornerRadius="3" Margin="5,0,0,0" Padding="3,0" Click="bn_LightOn_Click" IsEnabled="{Binding IsLightEnabled}"/>
+                                    <uc:UserButton Content="Light Off All" CornerRadius="3" Margin="5,0,0,0" Padding="3,0" Click="bn_LightOff_Click" IsEnabled="{Binding IsLightDisabled}"/>
+                                </WrapPanel>
+                            </GroupBox.Header>
+                            <UniformGrid Columns="2">
+                                <GroupBox Header="TOP LIGHTS" x:Name="SetTopLight">
+                                    <UniformGrid Columns="1">
+                                        <uc:UserButton Content="Light On" Margin="20" CornerRadius="3" Click="bn_LightOnTopAll_Click"/>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition/>
+                                                <ColumnDefinition Width="50"/>
+                                            </Grid.ColumnDefinitions>
+                                            <uc:UserCombo UCBTitle="SELECT LC" UCBItemSource="{Binding TopLightItems}" UCBSelectedIndex="{Binding LightTopCtrlNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBUnitWidth="0"/>
+                                            <uc:UserButton Grid.Column="1" Content="{Binding TopLightString}" Height="25" CornerRadius="3" Click="bn_LightOnTop_Click"/>
+                                        </Grid>
+                                        <uc:UserSlider USTitle="Light Value" USValue="{Binding LightTopValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="3500" USTickFrequency="25" USValueWidth="40" USTitleWidth="100"/>
+                                    </UniformGrid>
+                                </GroupBox>
+                                <GroupBox Header="BOT LIGHTS" x:Name="SetBotLight">
+                                    <UniformGrid Columns="1">
+                                        <uc:UserButton Content="Light On" Margin="20" CornerRadius="3" Click="bn_LightOnBotAll_Click"/>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition/>
+                                                <ColumnDefinition Width="50"/>
+                                            </Grid.ColumnDefinitions>
+                                            <uc:UserCombo UCBTitle="Ch No." UCBItemSource="{StaticResource CBItemsLightChannel}" UCBSelectedIndex="{Binding LightBotChNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBUnitWidth="0"/>
+                                            <uc:UserButton Grid.Column="1" Content="{Binding BotLightString}" Height="25" CornerRadius="3" Click="bn_LightOnBot_Click"/>
+                                        </Grid>
+                                        <uc:UserSlider Grid.Row="1" USTitle="Light Value" USValue="{Binding LightBotValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="255" USTickFrequency="25" USValueWidth="40" USTitleWidth="100"/>
+                                    </UniformGrid>
+                                </GroupBox>
+                            </UniformGrid>
+                        </GroupBox>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </GroupBox>
+        <Grid Grid.Column="2" IsEnabled="{Binding IsAdmin}">
+            <WrapPanel>
+                <uc:UserButton Content="Test Image" Click="bn_ImageTest_Click"      Width="{Binding Path=Width, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=Grid}}"/>
+                <GroupBox Header="GiGA Test" Width="120">
+                    <UniformGrid Columns =" 1">
+                        <uc:UserParam UPUnitWidth="0" UPTitle="MyNode"  UPValue="{Binding MyNodeNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        <uc:UserParam UPUnitWidth="0" UPTitle="Target1"  UPValue="{Binding TargetNodeNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        <uc:UserParam UPUnitWidth="0" UPTitle="Target2"  UPValue="{Binding TargetNodeNo2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        <uc:UserParam UPUnitWidth="0" UPTitle="MailBox" UPValue="{Binding MailBoxNo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        <uc:UserButton Content="Link Test" Click="bn_LinkTest_Click"/>
+                        <uc:UserButton Content="GigaSend" Click="bn_GigaSend_Click"/>
+                        <uc:UserButton Content="TcpIPSend" Click="bn_TcpIPSend_Click"/>
+                        <uc:UserButton Content="PushImage" Click="bn_PushImage_Click"/>
+                    </UniformGrid>
+                </GroupBox>
+            </WrapPanel>
+        </Grid>
+    </Grid>
+</Page>

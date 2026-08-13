@@ -1,0 +1,115 @@
+﻿<Window x:Class="KeocGrabber.Win_Vieworks"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:KeocGrabber"
+        xmlns:uc="clr-namespace:FalconWpf"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        mc:Ignorable="d"
+        Title="Win_Vieworks" Height="700" Width="430" Loaded="Window_Loaded" ResizeMode="NoResize">
+
+    <Window.Resources>
+        <x:Array x:Key="CBItemOnOff" Type="sys:String">
+            <sys:String>Off</sys:String>
+            <sys:String>On</sys:String>
+        </x:Array>
+        <x:Array x:Key="CBItemTestImage" Type="sys:String">
+            <sys:String>Off</sys:String>
+            <sys:String>Fix Pattern 1</sys:String>
+            <sys:String>Fix Pattern 2</sys:String>
+            <sys:String>Moving Pattern</sys:String>
+        </x:Array>
+        <x:Array x:Key="CBItemDataBit" Type="sys:String">
+            <sys:String>8 bit output</sys:String>
+            <sys:String>10 bit output</sys:String>
+            <sys:String>12 bit output</sys:String>
+        </x:Array>
+        <x:Array x:Key="CBItemCameraLinkMode" Type="sys:String">
+            <sys:String>2 Tap Base</sys:String>
+            <sys:String>4 Tap Base</sys:String>
+            <sys:String>8 Tap Full</sys:String>
+            <sys:String>10 Tap Full</sys:String>
+        </x:Array>
+        <x:Array x:Key="CBItemCameraLinkSpeed" Type="sys:String">
+            <sys:String>50Mhz</sys:String>
+            <sys:String>60Mhz</sys:String>
+            <sys:String>70Mhz</sys:String>
+            <sys:String>80Mhz</sys:String>
+        </x:Array>
+        <x:Array x:Key="CBItemTriggerMode" Type="sys:String">
+            <sys:String>Free Run</sys:String>
+            <sys:String>External Sync</sys:String>
+            <sys:String>External Sync Convert Mode</sys:String>
+        </x:Array>
+        <x:Array x:Key="CBItemExposureTimeSource" Type="sys:String">
+            <sys:String>Program Exposure(by Cam)</sys:String>
+            <sys:String>Pulse Width (by External Trigger Signal)</sys:String>
+            <sys:String>Edge (by External Trigger Signal)</sys:String>
+        </x:Array>
+        <x:Array x:Key="CBItemTriggerSource" Type="sys:String">
+            <sys:String>CC1 Port Input(Cam Link)</sys:String>
+            <sys:String>External Input(Control Receptacle)</sys:String>
+        </x:Array>
+        <x:Array x:Key="CBItemImageMode" Type="sys:String">
+            <sys:String>Single Line</sys:String>
+            <sys:String>Dual Line</sys:String>
+            <sys:String>Horizontal Binning</sys:String>
+            <sys:String>Vertical Binning</sys:String>
+            <sys:String>2x2 Binning</sys:String>
+        </x:Array>
+    </Window.Resources>
+
+    <Window.DataContext>
+        <local:Win_VieworksDataContext x:Name="datacontext"/>
+    </Window.DataContext>
+
+    <Grid Margin="5">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="60"/>
+            <RowDefinition/>
+        </Grid.RowDefinitions>
+        <GroupBox Header="Camera">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition Width="60"/>
+                    <ColumnDefinition Width="60"/>
+                </Grid.ColumnDefinitions>
+                <uc:UserCombo UCBTitle="Comport" UCBItemSource="{Binding Comport}" UCBSelectedIndex="{Binding SelectedIndex, Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}" UCBUnitWidth="0"/>
+                <uc:UserButton Grid.Column="1" Content="Apply" Click="bn_Apply_Click" CornerRadius="5" Margin="3"/>
+                <uc:UserButton Grid.Column="2" Content="Update" Click="bn_Update_Click" CornerRadius="5" Margin="3"/>
+            </Grid>
+        </GroupBox>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition/>
+                <ColumnDefinition Width="100"/>
+            </Grid.ColumnDefinitions>
+            <GroupBox Header="Properties" Grid.Row="1" IsEnabled="{Binding IsConnected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+            <UniformGrid Columns="1">
+                <uc:UserSlider USTitle="ImageOffset"           USValue         ="{Binding ImageOffset         , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="16384" USTickFrequency="4096"   USTitleWidth="100" USSliderWidth="120"/>
+                <uc:UserSlider USTitle="ImageWidth"            USValue         ="{Binding ImageWidth          , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="16384" USTickFrequency="4096"   USTitleWidth="100" USSliderWidth="120"/>
+                <uc:UserSlider USTitle="LinePeriod"            USValue         ="{Binding LinePeriod          , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="999"   USTickFrequency="10"     USTitleWidth="100" USSliderWidth="120"/>
+                <uc:UserSlider USTitle="ExposureTime"          USValue         ="{Binding ExposureTime        , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="2" USMaximum="10000" USTickFrequency="100"    USTitleWidth="100" USSliderWidth="120"/>
+                <uc:UserCombo UCBTitle="TestImage"             UCBSelectedIndex="{Binding TestImage           , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBItemSource="{StaticResource CBItemTestImage}"            UCBUnitWidth="0" UCBTitleWidth="100"/>
+                <uc:UserCombo UCBTitle="DataBit"               UCBSelectedIndex="{Binding DataBit             , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBItemSource="{StaticResource CBItemDataBit}"              UCBUnitWidth="0" UCBTitleWidth="100"/>
+                <uc:UserCombo UCBTitle="CameraLinkMode"        UCBSelectedIndex="{Binding CameraLinkMode      , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBItemSource="{StaticResource CBItemCameraLinkMode}"       UCBUnitWidth="0" UCBTitleWidth="100"/>
+                <uc:UserCombo UCBTitle="CameraLinkClockSpeed"  UCBSelectedIndex="{Binding CameraLinkClockSpeed, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBItemSource="{StaticResource CBItemCameraLinkSpeed}"      UCBUnitWidth="0" UCBTitleWidth="100"/>
+                <uc:UserCombo UCBTitle="HorizontalFlip"        UCBSelectedIndex="{Binding HorizontalFlip      , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBItemSource="{StaticResource CBItemOnOff}"                UCBUnitWidth="0" UCBTitleWidth="100"/>
+                <uc:UserSlider USTitle="DigitalGain"           USValue         ="{Binding DigitalGain         , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="32"    USTickFrequency="1" USTitleWidth="100" USSliderWidth="120"/>
+                <uc:UserSlider USTitle="DigitalOffset"         USValue         ="{Binding DigitalOffset       , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="2048"  USTickFrequency="10" USTitleWidth="100" USSliderWidth="120"/>
+                <uc:UserCombo UCBTitle="TriggerMode"           UCBSelectedIndex="{Binding TriggerMode         , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBItemSource="{StaticResource CBItemTriggerMode}"          UCBUnitWidth="0" UCBTitleWidth="100"/>
+                <uc:UserCombo UCBTitle="ExposureSource"        UCBSelectedIndex="{Binding ExposureSource      , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBItemSource="{StaticResource CBItemExposureTimeSource}"   UCBUnitWidth="0" UCBTitleWidth="100"/>
+                <uc:UserCombo UCBTitle="TriggerSource"         UCBSelectedIndex="{Binding TriggerSource       , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBItemSource="{StaticResource CBItemTriggerSource}"        UCBUnitWidth="0" UCBTitleWidth="100"/>
+                <uc:UserCombo UCBTitle="TriggerPolarity"       UCBSelectedIndex="{Binding TriggerPolarity     , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBItemSource="{StaticResource CBItemOnOff}"                UCBUnitWidth="0" UCBTitleWidth="100"/>
+                <uc:UserSlider USTitle="TriggerConverter"      USValue         ="{Binding TriggerConverter    , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0.1" USMaximum="100" USTickFrequency="1" USTitleWidth="100" USSliderWidth="120"/>
+                <uc:UserCombo UCBTitle="ImageMode"             UCBSelectedIndex="{Binding ImageMode           , Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" UCBItemSource="{StaticResource CBItemImageMode}"            UCBUnitWidth="0" UCBTitleWidth="100"/>
+            </UniformGrid>
+        </GroupBox>
+            <GroupBox Grid.Column="1" Header="Message">
+                <ListBox Name="lbMessage"/>
+            </GroupBox>
+        </Grid>
+    </Grid>
+</Window>

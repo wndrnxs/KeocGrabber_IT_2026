@@ -1,0 +1,70 @@
+﻿/*
+ *******************************************************************************
+ * 해당 소스는 현장 유지 보수 외에 다른 목적의 사용을 금합니다.
+ * - 주식회사 태루 -
+ *******************************************************************************
+ */
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace KeocGrabber
+{
+    public class RecipeParam : MVVMBase.IPropertyChanged
+    {
+        string strRecipeName = "";
+        string strRecipeWriteTime = "";
+        public string RecipeName { get { return strRecipeName; } set { strRecipeName = value; OnPropertyChanged(nameof(RecipeName)); } }
+        public string RecipeWriteTime { get { return strRecipeWriteTime; } set { strRecipeWriteTime = value; OnPropertyChanged(nameof(RecipeWriteTime)); } }
+
+        float nCamExposure1 = 0;
+        float nCamExposure2 = 0;
+        float nCamExposure3 = 0;
+        float nCamExposure4 = 0;
+
+        float nCamGain1 = 0;
+        float nCamGain2 = 0;
+        float nCamGain3 = 0;
+        float nCamGain4 = 0;
+
+        int nLightTop1 = 0;
+        int nLightTop2 = 0;
+        int nLightTop3 = 0;
+        int nLightTop4 = 0;
+
+        int nLightBot1 = 0;
+        int nLightBot2 = 0;
+        int nLightBot3 = 0;
+        int nLightBot4 = 0;
+        int nLightBot5 = 0;
+        int nLightBot6 = 0;
+
+        public float CamExposure1 { get { return nCamExposure1; } set { nCamExposure1 = value; OnPropertyChanged(nameof(CamExposure1)); } }
+        public float CamExposure2 { get { return nCamExposure2; } set { nCamExposure2 = value; OnPropertyChanged(nameof(CamExposure2)); } }
+        public float CamExposure3 { get { return nCamExposure3; } set { nCamExposure3 = value; OnPropertyChanged(nameof(CamExposure3)); } }
+        public float CamExposure4 { get { return nCamExposure4; } set { nCamExposure4 = value; OnPropertyChanged(nameof(CamExposure4)); } }
+
+        public float CamGain1 { get { return nCamGain1; } set { nCamGain1 = value; OnPropertyChanged(nameof(CamGain1)); } }
+        public float CamGain2 { get { return nCamGain2; } set { nCamGain2 = value; OnPropertyChanged(nameof(CamGain2)); } }
+        public float CamGain3 { get { return nCamGain3; } set { nCamGain3 = value; OnPropertyChanged(nameof(CamGain3)); } }
+        public float CamGain4 { get { return nCamGain4; } set { nCamGain4 = value; OnPropertyChanged(nameof(CamGain4)); } }
+
+        public int LightTop1 { get { return nLightTop1; } set { nLightTop1 = value; OnPropertyChanged(nameof(LightTop1)); } }
+        public int LightTop2 { get { return nLightTop2; } set { nLightTop2 = value; OnPropertyChanged(nameof(LightTop2)); } }
+        public int LightTop3 { get { return nLightTop3; } set { nLightTop3 = value; OnPropertyChanged(nameof(LightTop3)); } }
+        public int LightTop4 { get { return nLightTop4; } set { nLightTop4 = value; OnPropertyChanged(nameof(LightTop4)); } }
+
+        public int LightBot1 { get { return nLightBot1; } set { nLightBot1 = value; OnPropertyChanged(nameof(LightBot1)); } }
+        public int LightBot2 { get { return nLightBot2; } set { nLightBot2 = value; OnPropertyChanged(nameof(LightBot2)); } }
+        public int LightBot3 { get { return nLightBot3; } set { nLightBot3 = value; OnPropertyChanged(nameof(LightBot3)); } }
+        public int LightBot4 { get { return nLightBot4; } set { nLightBot4 = value; OnPropertyChanged(nameof(LightBot4)); } }
+        public int LightBot5 { get { return nLightBot5; } set { nLightBot5 = value; OnPropertyChanged(nameof(LightBot5)); } }
+        public int LightBot6 { get { return nLightBot6; } set { nLightBot6 = value; OnPropertyChanged(nameof(LightBot6)); } }
+
+        DataTable dtCropROI = new DataTable();
+        public DataTable CropROI { get { return dtCropROI; } set { dtCropROI = value; OnPropertyChanged(nameof(CropROI)); } }
+    }
+}

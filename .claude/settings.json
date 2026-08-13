@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Professional\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"d:\\\\997.SOURCE\\\\KeocGrabber_Euresys\\\\KeocGrabber.sln\" /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal /clp:ErrorsOnly)"
+    ]
+  }
+}

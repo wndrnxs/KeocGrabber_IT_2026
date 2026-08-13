@@ -1,0 +1,57 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <Color x:Key="MainColor" >#ff1d4593</Color>
+    <Color x:Key="SubColor">#ffdee3f7</Color>
+    <Color x:Key="FontColor">White</Color>
+
+    <Color x:Key="OperatorColor"    >#ffffe0</Color>
+    <Color x:Key="MaintenanceColor" >#90ee90</Color>
+    <Color x:Key="EngineerColor"    >#add8e6</Color>
+
+    <!--brush-->
+    <SolidColorBrush x:Key="MainBtnBack" Color="#00000000"/>
+    <SolidColorBrush x:Key="MainBtnFore" Color="#ffffffff"/>
+    <SolidColorBrush x:Key="MainBrush"  Color="{StaticResource MainColor}"/>
+    <SolidColorBrush x:Key="SubBrush"  Color="{StaticResource SubColor}"/>
+    <SolidColorBrush x:Key="FontBrush" Color="{StaticResource FontColor}"/>
+
+    <SolidColorBrush x:Key="OKBrush" Color="SpringGreen"/>
+    <SolidColorBrush x:Key="NGBrush" Color="Tomato"/>
+
+    <SolidColorBrush x:Key="PRG_FORE" Color="#FF42A2E7"/>
+    <SolidColorBrush x:Key="PRG_EXCEED" Color="Tomato"/>
+
+    <SolidColorBrush x:Key="ButtonSel" Color="#FF42A2E7"/>
+    <!--<SolidColorBrush x:Key="ButtonUnSel" Color="#FFE7E7E7"/>-->
+    <SolidColorBrush x:Key="ButtonUnSel" Color="Transparent"/>
+    <SolidColorBrush x:Key="ButtonUnSelLog" Color="#FFF7F7F7"/>
+
+    <SolidColorBrush x:Key="UserOperator"   Color="{StaticResource OperatorColor}"/>
+    <SolidColorBrush x:Key="UserMaintenace" Color="{StaticResource MaintenanceColor}"/>
+    <SolidColorBrush x:Key="UserEngineer"   Color="{StaticResource EngineerColor}"/>
+
+    <Style x:Key="DataGridColumnHeaderStyle" TargetType="{x:Type DataGridColumnHeader}">
+        <Setter Property="Background" Value="LightGray"/>
+        <Setter Property="BorderBrush" Value="Gray"/>
+        <Setter Property="BorderThickness" Value="0.5"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="Height" Value="35"/>
+    </Style>
+
+    <Style x:Key="DataGridStyle" TargetType="{x:Type DataGrid}">
+        <Setter Property="AutoGenerateColumns"      Value="False"/>
+        <Setter Property="CanUserAddRows"           Value="False"/>
+        <Setter Property="CanUserResizeColumns"     Value="False"/>
+        <Setter Property="CanUserDeleteRows"        Value="False"/>
+        <Setter Property="CanUserReorderColumns"    Value="False"/>
+        <Setter Property="CanUserSortColumns"       Value="False"/>
+        <Setter Property="HorizontalGridLinesBrush" Value="LightGray"/>
+        <Setter Property="VerticalGridLinesBrush"   Value="LightGray"/>
+        <Setter Property="RowHeaderWidth"           Value="0"/>
+        <Setter Property="Background"               Value="Transparent"/>
+        <Setter Property="SelectionMode"            Value="Single"/>
+        <Setter Property="ColumnHeaderStyle"        Value="{StaticResource DataGridColumnHeaderStyle}"/>
+    </Style>
+</ResourceDictionary>

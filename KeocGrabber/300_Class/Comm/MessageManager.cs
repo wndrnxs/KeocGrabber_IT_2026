@@ -1,0 +1,325 @@
+﻿/*
+ *******************************************************************************
+ * 해당 소스는 현장 유지 보수 외에 다른 목적의 사용을 금합니다.
+ * - 주식회사 태루 -
+ *******************************************************************************
+ */
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace KeocGrabber
+{
+    public class RequestData
+    {
+        public string CellId { get; set; }
+        public int ImageIndex { get; set; }
+        public int MemAreaNo { get; set; }
+        public int MemOffset { get; set; }
+        public int ImgCropOffsetY { get; set; }
+        public int ImgCropHeight { get; set; }
+        public int[] Nodes { get; set; }
+        public ProtocallManager Sender { get; set; }
+        public DateTime Timestamp { get; private set; }
+
+        public RequestData()
+        {
+            this.Timestamp = DateTime.Now;
+        }
+    }
+    class MessageManager
+    {
+        //List<Tuple<string, int,int,int,int, int, int[]>> m_listRequest = new List<Tuple<string, int, int, int, int, int, int[]>>();
+        List<RequestData> m_listRequest = new List<RequestData>();
+
+        #if DEBUG
+        //public ConcurrentQueue<RequestData> m_Que { get; private set; } = new ConcurrentQueue<RequestData>();
+        #endif
+        
+        Mutex mutex = new Mutex();
+        Thread thread = null;
+
+        const int MAX_RETRYLINK = 3;
+        public string CellID
+        {
+            get
+            {
+                // m_listRequest는 fn_PushRequest/THREAD_MESSAGE에서 mutex로 보호하며 변경된다.
+                // getter도 같은 mutex로 보호하지 않으면 동시 접근 시 List 내부가 깨져 null 슬롯을 읽고 NRE 발생.
+                mutex.WaitOne();
+                try
+                {
+                    if (m_listRequest.Count > 0 && m_listRequest[0] != null)
+                        return m_listRequest[0].CellId;
+                    return "";
+                }
+                finally { mutex.ReleaseMutex(); }
+            }
+        }
+
+        public int CellIDCount
+        {
+            get
+            {
+                mutex.WaitOne();
+                try { return m_listRequest.Count; }
+                finally { mutex.ReleaseMutex(); }
+            }
+        }
+
+        public void fn_Init()
+        {
+            thread = new Thread(new ThreadStart(THREAD_MESSAGE));
+            thread.Start();
+        }
+
+        public void fn_Final()
+        {
+            if (thread.IsAlive)
+            {
+                thread.Abort();
+                thread = null;
+            }
+        }
+
+        /// <summary>
+        /// 이미지 요청 큐 적재.
+        /// </summary>
+        /// <param name="cellid">셀 아이디</param>
+        /// <param name="imageindex">이미지 인덱스</param>
+        /// <param name="memAreaNo">메모리 No.</param>
+        /// <param name="memOffset">메모리 offset.</param>
+        /// <param name="imgcropoffsetY">이미지 Crop Offset Y</param>
+        /// <param name="imgcropheight">이미지 Crop Height</param>
+        /// <param name="nodes">목표 노드 리스트</param>
+        /// <param name="Sender">Server Type</param>
+        public void fn_PushRequest(string cellid, int memAreaNo, int memOffset, int imgcropoffsetY, int imgcropheight, int imageindex, int[] nodes, ProtocallManager sender)
+        {
+            RequestData req = new RequestData
+            {
+                CellId = cellid,
+                ImageIndex = imageindex,
+                MemAreaNo = memAreaNo,
+                MemOffset = memOffset,
+                ImgCropOffsetY = imgcropoffsetY,
+                ImgCropHeight = imgcropheight,
+                Nodes = nodes,
+                Sender = sender
+            };
+            mutex.WaitOne();
+            m_listRequest.Add(req);
+            //m_listRequest.Add(new Tuple<string,int,int,int,int, int, int[], string>(cellid, imageindex, memAreaNo, memOffset, imgcropoffsetY, imgcropheight, nodes));
+            mutex.ReleaseMutex();
+        }
+
+        /// <summary>
+        /// Image가 Ready가 안되면 POP하지 않음.
+        /// </summary>
+        /// <returns>받은 요청.(CellID, ImageIndex, NodeID[].)</returns>
+        private RequestData fn_PopRequest()
+        {
+            RequestData request = null;
+
+            if (m_listRequest.Count > 0)
+            {
+                request = m_listRequest[0];
+
+                if (G.IMAGEMANAGER.IsImageCompalte != null)
+                {
+                    //! 완성된 이미지 먼저 전송 코드.  Taeroo-kgseon - 2024/08/02  13:49
+                    if (G.IMAGEMANAGER.IsImageCompalte[request.ImageIndex])
+                    {
+                        if (mutex.WaitOne(3000))
+                        {
+                            m_listRequest.RemoveAt(0);
+                            mutex.ReleaseMutex();
+                        }
+                        else
+                        {
+                            request = null;
+                        }
+                    }
+                    else // 앞선 데이터를 제거하고, 가장 뒤로 이동.
+                    {
+                        TimeSpan elapsedTime = DateTime.Now - request.Timestamp;
+
+                        if (elapsedTime.TotalSeconds > 300)
+                        {
+                            G.WriteLog($"Queue deleted due to timeout. (CELL:{request.CellId})");
+                            m_listRequest.RemoveAt(0);
+                        }
+                        else if (mutex.WaitOne(3000))
+                        {
+                            m_listRequest.RemoveAt(0);
+                            m_listRequest.Add(request);
+                            mutex.ReleaseMutex();
+                        }
+                        request = null;
+                    }
+
+                }
+                else
+                {
+                    request = null;
+                }
+            }
+
+            return request;
+        }
+
+        /// <summary>
+        /// 이미지 요청 처리 부분
+        /// Image Crop까지 처리.
+        /// </summary>
+        /// <param name="req">CellID, ImageIndex, memAreaNo, memOffset, imgCropOffset, imgCropHeight, NodeID[]</param>
+        private void fn_ProcRequest(RequestData req)
+        {
+            string cellid = req.CellId;
+            int imgindex = req.ImageIndex;
+            int memareano = req.MemAreaNo;
+            int memoffset = req.MemOffset;
+            int cropoffset = req.ImgCropOffsetY;
+            int cropheight = req.ImgCropHeight;
+            int[] nodes = req.Nodes;
+            ProtocallManager sender = req.Sender;
+
+            OpenCvSharp.Mat matImg = G.IMAGEMANAGER.CamImage[imgindex].Clone() ;
+            //matImg = G.IMAGEMANAGER.CamImage[imgindex];
+            int ROI_idx = 0;
+
+            //if (sender.serverType == ProtocallManager.ServerType.MASTER1)
+
+            int orgwidth = matImg.Cols;
+            int orgheight = matImg.Rows;
+
+            OpenCvSharp.Rect rectROI1 = new OpenCvSharp.Rect();
+
+            // Image Crop 처리.
+            // Mat = Mat[offsetY, height, offsetX, width].clone()
+            if (G.SYSTEM.JavasCount == 2)
+            {
+                bool isMaster1 = sender == null || sender.serverType == ProtocallManager.ServerType.MASTER1;
+                if (isMaster1)
+                {
+                    ROI_idx = imgindex * 2;
+                }
+                else
+                {
+                    ROI_idx = imgindex * 2 + 1;
+                }
+
+                try
+                {
+                    rectROI1.X = Convert.ToInt32(G.CURRRECIPE.CropROI.Rows[ROI_idx]["X"]);
+                    rectROI1.Y = Convert.ToInt32(G.CURRRECIPE.CropROI.Rows[ROI_idx]["Y"]);
+                    rectROI1.Width = Convert.ToInt32(G.CURRRECIPE.CropROI.Rows[ROI_idx]["Width"]);
+                    rectROI1.Height = Convert.ToInt32(G.CURRRECIPE.CropROI.Rows[ROI_idx]["Height"]);
+
+                    matImg = matImg[rectROI1].Clone();
+                }
+                catch(Exception ex)
+                {
+                    G.WriteLog($"Recipe Error, Split half : {ex.Message}", true);
+                    rectROI1.X = 0;
+                    rectROI1.Y = 0;
+                    rectROI1.Width = matImg.Width;
+                    rectROI1.Height = (int)(matImg.Height / 2.0);
+                }
+            }
+
+            if (cropoffset > 0)
+            //if (cropoffset + cropheight < matImg.Rows)
+            {
+                if (cropheight == 0)
+                    cropheight = matImg.Rows - cropoffset;
+
+                if (cropoffset + cropheight <= matImg.Rows)
+                    matImg = matImg[cropoffset, cropoffset + cropheight, 0, matImg.Cols].Clone();
+                else
+                    G.WriteLog($"cropParam Error : offset + height [{cropoffset} + {cropheight}] >= imgRow [{matImg.Rows}]", true);
+            }
+
+            int width = matImg.Cols;
+            int height = matImg.Rows;
+
+            // Data Transfer GiGA Board.
+            if (G.GIGABOARD.IsConnected)
+            {
+                byte[] byteArray = new byte[matImg.Total()];
+                GCHandle handle = GCHandle.Alloc(byteArray, GCHandleType.Pinned);
+                IntPtr dataPtr = matImg.Data;
+                Marshal.Copy(dataPtr, byteArray, 0, byteArray.Length);
+                handle.Free();
+                int retry = 0;
+                while (G.GIGABOARD.fn_SendData(imgindex, memareano, memoffset, byteArray, nodes) != 0)
+                {
+                    G.WriteLog($"SendData Error. Retry Send.({retry + 1}/{MAX_RETRYLINK})", true);
+
+                    //! LinkCheck (apx7400GetLinkNodes).  Taeroo-kgseon - 2024/11/12  12:26
+                    G.GIGABOARD.fn_LinkCheck();
+
+                    Thread.Sleep(10);
+                    //! 재시도 횟수 체크.  Taeroo-kgseon - 2024/11/12  12:23
+                    //! 만약 재시도 횟수가 넘어간다면 재시도 중지.  Taeroo-kgseon - 2024/11/12  12:24
+                    retry++;
+                    if (retry >= MAX_RETRYLINK)
+                        break;
+                }
+            }
+            else
+            {
+                G.WriteLog($"GiGA Board 미연결 - 데이터 전송 생략 (CELL:{cellid})");
+            }
+
+            if (G.SYSTEM.LocalSave) {
+                G.DISKMANAGER.PushSaveImage(imgindex, matImg, cellid);
+            }
+
+            // Send OK Message. (수동 테스트 시 Sender가 null이면 전송 생략)
+            //G.COMM.SendReady(imgindex, width, height, orgheight, nodes);
+            req.Sender?.SendReady(imgindex, width, height, orgheight, nodes);
+
+            //G.IMAGEMANAGER.InitComplFlag(imgindex);
+            //G.IMAGEMANAGER.InitAttachCount(0);
+            //G.IMAGEMANAGER.InitAttachCount(1);
+            //G.IMAGEMANAGER.InitAttachCount(2);
+            //G.IMAGEMANAGER.InitAttachCount(3);
+
+
+            string strMsg = $"[ProcREQ] {cellid} | {imgindex} ";
+            for (int i = 0; i < nodes.Length; i++)
+            {
+                strMsg += $"| {nodes[i]} ";
+            }
+            G.WriteLog(strMsg);
+        }
+
+        private void THREAD_MESSAGE()
+        {
+            RequestData request = null;
+            //Tuple<string, int, int, int, int, int, int[]> request = null;
+
+            while (true)
+            {
+                // 요청 들어온 인덱스 플래그(G.IMAGEMANAGER.IsComplate[idx])가 true이면 유효한 데이터 리턴.
+                // 아니라면 null데이터를 리턴하여 대기.
+                request = fn_PopRequest();
+                if (request != null)
+                {
+                    // proc message;
+                    fn_ProcRequest(request);
+                }
+                else
+                {
+                    Thread.Sleep(100);
+                }
+            }
+        }
+    }
+}

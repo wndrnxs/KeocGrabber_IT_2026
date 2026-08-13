@@ -1,0 +1,445 @@
+﻿/*
+ *******************************************************************************
+ * 해당 소스는 현장 유지 보수 외에 다른 목적의 사용을 금합니다.
+ * - 주식회사 태루 -
+ *******************************************************************************
+ */
+using FalconWpf;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing.Text;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace KeocGrabber
+{
+    public class ProtocallManager
+    {
+        public enum COMM_STATUS
+        {
+            SUCCESS, STX_ERROR, LENGTH_ERROR, PARSING_ERROR, EQP_ERRORdotCAMERA, EQP_ERRORdotLIGHT, EQP_ERRORdotGIGABOARD, EQP_ERRORdotUNKNOWN
+        };
+
+        public enum ServerType { MASTER1, MASTER2 }
+        private ServerType m_ServerType;
+
+        protected const byte STX = 0x05;
+        protected const byte ETX = 0x0A;
+        protected const byte EOM = 0x00;
+
+        protected const int HEARTBEATSEND_INTERVAL = 1500; // 1.5초에 한번 전송.
+        protected const int TEMPSEND_INTERVAL = 1000 * 3 * 60;
+        //protected const int TEMPSEND_INTERVAL = 1000 * 1 * 60; // DEBUG
+
+        public RequestData TestRequest { get; private set; } = null; //Lab Test
+		public ServerType serverType { get { return m_ServerType; } }
+		
+        TCPIPClient comm = new TCPIPClient();
+
+        int nHeartBeatRecvCounter = 5;
+
+        Thread threadHeartbeat = null;
+
+        bool bWorking = false;
+        const int THREAD_INTERVAL = 100;
+
+        bool bIsConnected = false;
+        public bool IsConnected { get { return bIsConnected; } set { bIsConnected = value; } }
+        
+        public void fn_Init(string ip, int port, ServerType type)
+        {
+            m_ServerType = type;
+
+            comm.MsgAnalyzer = MessageAnalyzer;
+            comm.fn_Init(ip, port);
+
+            bWorking = true;
+            threadHeartbeat = new Thread(new ThreadStart(THREAD_HEARTBEAT));
+            threadHeartbeat.Start();
+
+        }
+
+        public void fn_Final()
+        {
+            bWorking = false;
+            if (threadHeartbeat != null)
+            {
+                if (threadHeartbeat.IsAlive)
+                {
+                    threadHeartbeat.Join(3000);
+                    threadHeartbeat = null;
+                }
+            }
+            comm.MsgAnalyzer = null;
+            comm.fn_Final();
+        }
+
+        private void THREAD_HEARTBEAT()
+        {
+            Stopwatch swHeartbeat = new Stopwatch();
+            Stopwatch swTemp = new Stopwatch();
+            swHeartbeat.Start();
+            swTemp.Start();
+            while (bWorking)
+            {
+                Thread.Sleep(THREAD_INTERVAL);
+                if (swHeartbeat.ElapsedMilliseconds >= HEARTBEATSEND_INTERVAL)
+                {
+                    swHeartbeat.Reset();
+                    swHeartbeat.Start();
+                    // Connection State Update.
+                    bIsConnected = nHeartBeatRecvCounter < 3;
+                    if (comm != null) comm.IsConnected = bIsConnected;
+                    // Heartbeat 보내기전 초기화.
+                    nHeartBeatRecvCounter++;
+                    if (nHeartBeatRecvCounter >= 3) nHeartBeatRecvCounter = 10;
+                    SendHeartbeat();
+                }
+                if (swTemp.ElapsedMilliseconds >= TEMPSEND_INTERVAL)
+                {
+                    swTemp.Reset();
+                    swTemp.Start();
+                    SendTemp();
+                }
+            }
+        }
+        private void SendHeartbeat()
+        {
+            string strMsg = $"ATS.SEND.ANGLEVIEW.STATUS";
+            comm?.SendMessage(Encode(strMsg));
+        }
+
+        private void SendTemp()
+        {
+            var boardinfo = G.GIGABOARD.fn_GetBoardInfo();
+            
+            string strMsg = $"ATS.SEND.ANGLEVIEW.TEMP.{boardinfo.BoardTemp}.{boardinfo.FpgaTemp}";
+
+            comm?.SendMessage(Encode(strMsg));
+        }
+
+        public void SendError(COMM_STATUS err)
+        {
+            //ATS.SEND.ANGLEVIEW.EQP_ERROR.CAMERA.
+            //ATS.SEND.ANGLEVIEW.EQP_ERROR.LIGHT.
+            //ATS.SEND.ANGLEVIEW.EQP_ERROR.GIGABOARD.
+
+            string strMsg = $"ATS.SEND.ANGLEVIEW.ERROR.{err}";
+            
+            if (err >= COMM_STATUS.EQP_ERRORdotCAMERA)
+            {
+                strMsg = strMsg.Replace("dot", ".");
+            }
+
+            comm?.SendMessage(Encode(strMsg));
+        }
+
+        /// <summary>
+        /// Acknowlege 전송.
+        /// 규칙 : 수신 메시지에서 STA -> ATS, SEND -> RECV.
+        /// </summary>
+        /// <param name="strMsg">수신 메시지</param>
+        public void AckSend(string strMsg)
+        {
+            strMsg = strMsg.Replace("STA.", "ATS.");
+            strMsg = strMsg.Replace("SEND.", "RECV.");
+            comm?.SendMessage(Encode(strMsg));
+        }
+
+        public void RecvHeartBeat()
+        {
+            nHeartBeatRecvCounter = 0;
+        }
+
+        static public string Encode(string msg)
+        {
+            string encodemsg = "";
+
+            encodemsg = Convert.ToString((char)STX) + "0000";
+            encodemsg += $"{msg.Length:D4}";
+            encodemsg += msg;
+            encodemsg += Convert.ToString((char)ETX);
+            encodemsg += '\0';
+
+            return encodemsg;
+        }
+
+        static public COMM_STATUS Decode(string msg, out string rtnmsg)
+        {
+            try
+            {
+                if (Convert.ToByte(Convert.ToChar(msg.Substring(0,1))) != STX)
+                {
+                    rtnmsg = "";
+                    return COMM_STATUS.STX_ERROR;
+                }
+                int startPos = 9;
+                int length = Convert.ToInt32(msg.Substring(5, 4));
+
+                if (msg.Length < startPos + length)
+                {
+                    rtnmsg = "";
+                    return COMM_STATUS.LENGTH_ERROR;
+                }
+                rtnmsg = msg.Substring(startPos, length);
+                return COMM_STATUS.SUCCESS;
+            }
+            catch
+            {
+                rtnmsg = "";
+                return COMM_STATUS.PARSING_ERROR;
+            }
+        }
+
+        public bool MessageAnalyzer(string strMsg)
+        {
+
+            COMM_STATUS statrtn = COMM_STATUS.SUCCESS;
+            string rtnmsg;
+            statrtn = Decode(strMsg, out rtnmsg);
+            if (statrtn != COMM_STATUS.SUCCESS)
+            {
+                G.WriteLog($"Decode error : {statrtn}", true);
+                return false;
+            }
+            // AMO 통신?
+            // Message 처리.
+            // ANGLEVIEW.[0]:[1]:[2]:[3]:[4]:[5]:[6]/
+            // [0 : Instruction]
+            // [1 : Cell_ID]
+            // [2 : Index Of Image (0~3)]
+            // [3 : Number of Target (0~31)]
+            // [4 : Num of Target (0~31)]
+            // [5 : Index of Target [0]]
+            // [6 : Index of Target [1]]
+            // ANGLEVIEW.RecieveReady:A123123412341234:0:2:2:3/
+            // 0번 이미지를 gigaboard node 2군데(NodeID 2, NodeID 3 각각)으로 전송 요청
+            //strMsg = "";
+            try
+            {
+                var listmsg = rtnmsg.Split('.');
+
+                if (listmsg.Length >= 4)
+                {
+                    //listmsg[0] == "STA"
+                    //listmsg[1] == "SEND" "RECV"
+                    //listmsg[2] == "ANGLEVIEW"
+                    //listmsg[3] == "ReceiveReady"
+                    //listmsg[3] == "ImgReady"
+                    //listmsg[3] == "ERROR"
+                    //listmsg[3] == "STATUS"
+
+                    switch (listmsg[3])
+                    {
+                        case "ReceiveReady" :
+                            G.WriteLog($"Recv Msg({serverType}) : {rtnmsg}");
+
+                            if (this.CheckEqError()) break;
+                                // ANGLEVIEW.[0].[1].[2].[3].[4].[5].[6].[7].[8]
+                                // 3 [0 : Instruction]
+                                // 4 [1 : Cell_ID]
+                                // 5 [2 : Index Of Image (0~3)]
+                                // 6 [3 : MemoryAreaNo (0~3)]
+                                // 7 [4 : Memory Offset]
+                                // 8 [5 : Image Crop Offset Y]
+                                // 9 [6 : Image Crop Height]
+                                // 10[7 : Number of Target (0~31)]
+                                // 11[8 : Target List(구분자':')]
+                                int imgidx = 0;
+                                int memno = 0;
+                                int memoffset = 0;
+                                int cropoffset = 0;
+                                int cropheight = 0;
+                                int targetcount = 0;
+                                int[] listidx;
+
+                                int.TryParse(listmsg[5], out imgidx);
+                                int.TryParse(listmsg[6], out memno);
+                                int.TryParse(listmsg[7], out memoffset);
+                                int.TryParse(listmsg[8], out cropoffset);
+                                int.TryParse(listmsg[9], out cropheight);
+                                int.TryParse(listmsg[10], out targetcount);
+                                var targetlist = listmsg[11].Split(':');
+
+                                if (targetlist.Length == targetcount + 1)
+                                {
+                                    listidx = new int[targetcount];
+                                    for (int i = 0; i < targetcount; i++)
+                                    {
+                                        int.TryParse(targetlist[i], out listidx[i]);
+                                    }
+
+                                    G.MSGPROC.fn_PushRequest(listmsg[4], memno, memoffset, cropoffset, cropheight, imgidx, listidx, this);
+
+
+                                    //Ack
+                                    this.AckSend(rtnmsg);
+
+
+#if DEBUG
+                                //var requestData = new RequestData
+                                //{
+                                //    Sender = this,
+                                //    ImageIndex = imgidx
+                                //};
+
+                                //G.MSGPROC.m_Que.Enqueue(requestData);
+#endif
+                            }
+                            else
+                                {
+                                    // error. wrong target count;
+                                }
+                            break;
+                        case "ImgReady"     :
+                            //Send Succ Check
+                            G.WriteLog("ImgReady Ack.");
+                            break;
+                        case "ERROR"        :
+                            if (listmsg.Length > 4)
+                            {
+                                G.WriteLog($"Recv Error : {listmsg[4]}", true);
+                            }
+                            else
+                            {
+                                G.WriteLog($"Recv Error [len error] : {rtnmsg}", true);
+                            }
+                            break;
+                        case "STATUS"       :
+
+                            //// Parsing이 4이상일 때.
+                            //if (listmsg.Length > 4)
+                            //{
+                            //    switch (listmsg[4])
+                            //    {
+                            //        case "CHECK":
+                            //            // recv msg
+                            //            if (G.COMM.CheckEqError()) break;
+
+                            //            // Grab Start.
+                            //            G.GrabStart();
+                            //            // send ack
+                            //            G.COMM.AckSend(rtnmsg);
+                            //            break;
+                            //    }
+                            //}
+                            //// 아니라면 Heartbeat.
+                            //else
+                            //{
+                            this.RecvHeartBeat();
+                            //}
+
+                                break;
+                        case "STATE":
+                            // Parsing이 4이상일 때.
+                            if (listmsg.Length > 4)
+                            {
+                                switch (listmsg[4])
+                                {
+                                    case "CHECK":
+                                        // recv msg
+                                        if (this.CheckEqError()) break;
+                                        
+                                        // Grab Start.
+                                        G.GrabStart(this.m_ServerType);
+
+                                        // send ack
+                                        this.AckSend(rtnmsg);
+                                        break;
+                                }
+                            }
+                            break;
+                            //! SYNC Cmd.  Taeroo-kgseon - 2024/10/23  11:39
+                            //!  - SYNC.0.MATT
+                            //!  - SYNC, RecipeCmd, RecipeName
+
+                        case "SYNC":
+                            
+                            // TODO : Protocal Update.
+                            switch (listmsg[4])
+                            {
+                                case "0": // Recipe Sync
+                                    if (G.SyncRecipe(listmsg[5]))
+                                    {
+                                        this.AckSend(rtnmsg);
+                                    }
+                                    break;
+                            }
+                            break;
+                    }
+                }
+                else
+                {
+                    // error parsing.
+                    this.SendError(COMM_STATUS.PARSING_ERROR);
+                }
+            }
+            catch (Exception ex)
+            {
+                G.WriteLog(ex.Message, true);
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Eq 에러 확인.
+        /// </summary>
+        /// <returns>에러 없으면 true, 에러 있으면 false</returns>
+        public bool CheckEqError()
+        {
+            bool bRet = false; //TRUE = ERROR
+            if (G.READYSTATE != EN_READYSTATE.Ready || G.GRABSTATE != EN_GRABSTATE.Grab)
+            {
+                bool bKnownError = false;
+                // error send.
+                if (!G.GRABBER.IsInited)
+                {
+                    this.SendError(COMM_STATUS.EQP_ERRORdotCAMERA);
+                    bKnownError = true;
+                }
+
+                if (Enumerable.Range(0, G.SYSTEM.CamCount).Any(i => !G.LIGHT[i]))
+                {
+                    this.SendError(COMM_STATUS.EQP_ERRORdotLIGHT);
+                    bKnownError = true;
+                }
+
+                if (!G.GIGABOARD.IsConnected)
+                {
+                    this.SendError(COMM_STATUS.EQP_ERRORdotGIGABOARD);
+                    bKnownError = true;
+                }
+
+                //if (!bKnownError)
+                if (bKnownError)
+                {
+                    this.SendError(COMM_STATUS.EQP_ERRORdotUNKNOWN);
+                    bRet = true;
+                }
+            }
+            return bRet;
+        }
+
+        public void SendReady(int index, int width, int height, int orgheight, int[] nodes)
+        {
+            // ANGLEVIEW.ImgReady:0:4096:9000:2:2:3/
+            // 0번 이미지(4096*9000)을 gigaboard 2군데(NodeID 2, NodeID 3 각각)으로 전송 완료.
+
+            // => Protocall 변경. 240509.
+            // ATS.SEND.ANGLEVIEW.ImgReady.0.4096.9000.orgheight.2.2.3
+            string strMsg = $"ATS.SEND.ANGLEVIEW.ImgReady.{index}.{width}.{height}.{orgheight}.{nodes.Length}.";
+            
+            for (int i = 0; i < nodes.Length; i++)
+            {
+                strMsg += $"{nodes[i]}:";
+            }
+
+            comm.SendMessage(Encode(strMsg));
+        }
+    }
+}

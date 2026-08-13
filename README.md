@@ -1,0 +1,134 @@
+# KEOC Image Grabber (KeocGrabber)
+
+라인스캔 카메라로 대상물을 촬상하고, Master PC(상위 비전 시스템)의 요청에 따라 GiGA 광링크 보드(APX-7402)를 통해 판정 PC로 이미지를 직접 전송하는 검사 설비용 그랩 프로그램입니다.
+
+## 1. 개요
+
+- **개발 언어 / 플랫폼**: C# / WPF (.NET Framework 4.8, x64 전용)
+- **주요 역할**
+  1. 카메라(2대 또는 4대)로부터 라인스캔 이미지를 그랩
+  2. Master(상위 PC, 1~2대)와 TCP/IP로 통신하며 LotID/촬상 요청을 수신
+  3. 촬상 완료 이미지를 GiGA 광링크 보드로 지정된 판정 노드(Node ID)에 직접 메모리 전송
+  4. 조명 컨트롤러(2계열) 제어, 레시피 기반 노광/게인/조명값 자동 세팅
+  5. 이미지·로그 파일 저장 및 보관
+
+## 2. 하드웨어 구성
+
+| 구분 | 내용 |
+|---|---|
+| 프레임 그래버 | **Euresys Coaxlink Quad G3**(CoaXPress, eGrabber SDK) 또는 **Matrox** 계열 보드(MIL SDK) 중 `SystemParam.UseEuresys`(bool)로 벤더 선택. Matrox 선택 시 `SystemParam.BoardType`(`MILBOARD_TYPE` enum: `EN_BT_SOLIOS`/`EN_BT_RADIENT`/`EN_BT_RADIENTCLHS`/`EN_BT_RADIENTEVCL`/`EN_BT_RADIENTCXP`/`EN_BT_RADIENTPRO`/`EN_BT_RAPIXOCXP`)로 세부 보드 모델 선택 |
+| 카메라 | Vieworks 라인스캔 카메라. Matrox 경로에서는 시리얼(RS-232, `sxx`/`gxx` ASCII 커맨드)로 직접 제어, Euresys 경로에서는 GenICam Remote 레이어로 제어(카메라 시리얼 통신 불필요) |
+| GiGA 광링크 보드 | Interface/APX-7402 (`apx7400Lib`), 광 Ch 1/2로 대상 Node에 이미지 메모리를 직접 Write |
+| 조명 컨트롤러 | DAWOO 컨트롤러(상부, 최대 4개, 커스텀 바이너리 프로토콜) + VIT 컨트롤러(하부, ASCII 프로토콜) — 카메라 4대 구성 시에만 VIT 사용 |
+| 통신 | TCP/IP(Master ↔ Grab PC, 최대 2계열) + Serial(조명/카메라) |
+
+## 3. 프로젝트 구조
+
+솔루션은 `KeocGrabber.sln` → `KeocGrabber\KeocGrabber.csproj` 단일 프로젝트이며, 폴더명 앞자리 숫자로 계층을 구분합니다.
+
+```
+KeocGrabber/
+├─ 010_Common/        공통 유틸 (Localization, MVVMBase, XmlManager)
+├─ 020_UserControl/   커스텀 WPF 컨트롤 (ImageViewer, UserButton/Combo/Param/Slider 등)
+├─ 100_Define/         전역 상태(Global.cs = G 클래스) / 시스템·레시피 파라미터 정의
+├─ 300_Class/
+│   ├─ Comm/           TCP/IP 클라이언트, 프로토콜 파서, 요청 큐 매니저
+│   ├─ GigaBoard/       APX-7402 SDK 래퍼
+│   ├─ Image/           촬상 이미지 버퍼 관리(카메라별 라인 누적)
+│   └─ Logger.cs / DiskManager.cs
+├─ 400_SubPage/         WPF 페이지(운전/설정/권한/통신상태/시스템정보)
+└─ 600_Device/
+    ├─ Camera/          GrabberManager(추상화), EuresysGrabber, MatroxGrabber, VieworksCamera
+    └─ Light/           LightManager, DawooLight, VitLight
+```
+
+`G` 정적 클래스(`100_Define/Global.cs`)가 전역 싱글턴 허브 역할을 하며, `GRABBER`, `LIGHT`, `COMM`/`COMM2`, `GIGABOARD`, `IMAGEMANAGER`, `DISKMANAGER`, `MSGPROC`, `LOGGER`, `CURRRECIPE` 등 모든 매니저 인스턴스를 보유합니다.
+
+## 4. 동작 시퀀스
+
+1. **연결/대기**: `TCPIPClient`가 Master IP:Port로 접속을 유지하며(끊기면 재접속 루프), 1.5초 주기로 Heartbeat(`ATS.SEND.ANGLEVIEW.STATUS`)를 송신합니다.
+2. **레시피 동기화**: Master가 `SYNC.0.<RecipeName>` 전송 → `G.SyncRecipe()`가 `C:/KEOC/Recipe/<RecipeName>.xml`을 파일 수정시각 기준으로 변경 시에만 재로드(노광/게인/조명값/Crop ROI 반영).
+3. **촬상 시작**: Master가 `STATE.CHECK` 전송 → 장비 에러 상태(`CheckEqError`) 확인 후 이상 없으면 레시피 적용 → 조명 ON → 그래버 Grab Start.
+4. **이미지 요청**: Master가 `ReceiveReady` 메시지(CellID, 이미지 인덱스, 메모리 영역/오프셋, Crop Offset/Height, 대상 Node ID 목록)를 전송 → `MessageManager` 큐에 적재.
+5. **그랩 완료 대기**: 카메라별 라인 청크가 `ImageManager.AttachImage()`로 설정된 `GrabHeight`까지 누적되면 완료 플래그 세팅, 마지막 카메라 완료 시 조명 자동 OFF.
+6. **전송 처리**: 큐에서 완료된 요청을 꺼내 필요 시 ROI Crop(2계열 Master 분할 촬상 지원) → GiGA 보드로 대상 Node에 이미지 메모리 Write(`fn_SendData`, 실패 시 최대 3회 재시도 + LinkCheck) → 로컬 저장 옵션(`LocalSave`) 처리.
+7. **완료 응답**: `ATS.SEND.ANGLEVIEW.ImgReady.<idx>.<width>.<height>.<orgheight>.<nodecount>.<node:...>` 전송.
+8. **안전 타이머**: `GrabTimeout`(기본 45초) 내 그랩이 끝나지 않으면 자동으로 GrabStop.
+
+## 5. 통신 프로토콜 (Master ↔ Grab PC)
+
+TCP 프레임은 고정 헤더 + 가변 길이 페이로드로 구성됩니다.
+
+```
+[STX(0x05)] [0000] [LLLL: 페이로드 길이 4자리] [페이로드 문자열] [ETX(0x0A)] [\0]
+```
+
+페이로드는 `.`으로 구분된 필드로 구성되며 대표 메시지는 다음과 같습니다.
+
+| 방향 | 메시지 예 | 설명 |
+|---|---|---|
+| Master→Grab | `STA.SEND.ANGLEVIEW.ReceiveReady.<CellID>.<이미지idx>.<메모리영역>.<메모리offset>.<CropOffsetY>.<CropHeight>.<대상노드수>.<노드:...>` | 이미지 요청 |
+| Master→Grab | `STA.SEND.ANGLEVIEW.STATE.CHECK` | 촬상 시작 지시 |
+| Master→Grab | `STA.SEND.ANGLEVIEW.SYNC.0.<RecipeName>` | 레시피 동기화 |
+| Grab→Master | `ATS.SEND.ANGLEVIEW.STATUS` | Heartbeat (1.5초 주기) |
+| Grab→Master | `ATS.SEND.ANGLEVIEW.TEMP.<BoardTemp>.<FpgaTemp>` | GiGA 보드 온도 보고 (3분 주기) |
+| Grab→Master | `ATS.SEND.ANGLEVIEW.ImgReady.<idx>.<width>.<height>.<orgheight>.<노드수>.<노드:...>` | 전송 완료 응답 |
+| Grab→Master | `ATS.SEND.ANGLEVIEW.ERROR.EQP_ERROR.[CAMERA\|LIGHT\|GIGABOARD\|UNKNOWN]` | 장비 이상 보고 |
+| Grab→Master | Ack (수신 메시지의 `STA.`→`ATS.`, `SEND.`→`RECV.` 치환) | 수신 확인 |
+
+## 6. 그래버 추상화 (Euresys / Matrox)
+
+`GrabberManager`가 `SystemParam.UseEuresys`(bool) 값으로 내부적으로 완전히 다른 두 구현체 리스트(`List<EuresysGrabber>` / `List<MatroxGrabber>`)를 선택적으로 운용하며, 상위 코드(`G.Init`, `SetCurrRecipe` 등)는 동일한 인터페이스로 호출합니다. Matrox 선택 시 세부 보드 모델은 `SystemParam.BoardType`(`MILBOARD_TYPE` enum, `MatroxGrabber.cs`에 정의)을 그대로 `MatroxGrabber.fn_Init`에 전달합니다 — 과거에는 자유 텍스트를 `Contains()`로 부분 매칭했으나(예: `"CXP"`만 입력하면 매칭 실패 후 조용히 기본값으로 대체되는 문제가 있었음), 현재는 enum 값이라 잘못된 값을 넣으면 설정 로드시 즉시 실패하고 기본값(`EN_BT_RADIENTEVCL`)으로 남습니다.
+
+- **EuresysGrabber** (`600_Device/Camera/EuresysGrabber.cs`)
+  - `EGrabberDiscovery`로 슬롯을 탐색해 요청 대수만큼 연결
+  - **Live(Setup) 모드**: FreeRun, 256라인 버퍼, 33ms throttle로 화면 표시
+  - **Production 모드**: 보드 CIC(RC 제어) + 카메라 LineStart 트리거(CXP) 조합으로 라인스캔 트리거링. 센서 1펄스(LIN1) → 보드가 내부 클럭으로 N라인 시퀀스를 생성(`SequenceLength`=GrabHeight)해 1024라인 청크 단위로 수신, `ImageManager`가 누적
+  - 라인주기 목표값(`TARGET_LINE_PERIOD_US` = 90.5us, 현장 200mm/s 스캔 조건 기준)에 맞춰 노광시간을 자동 캡핑
+  - Mono10/12/16 포맷은 CV_16UC1로 받아 8bit로 비트시프트 변환
+- **MatroxGrabber** (`600_Device/Camera/MatroxGrabber.cs`)
+  - MIL SDK 기반, 카메라별 DCF 파일(H/W 트리거 및 Grab Start IO 설정)로 초기화
+  - `MdigProcess` 비동기 그랩 + Hook 콜백으로 프레임 수신
+  - 노광/게인은 `VieworksCamera`(시리얼) 경유로 제어
+
+## 7. 조명 제어
+
+`LightManager`가 인덱스 0..N을 DAWOO(상부, `CtrlCount`개) → VIT(하부) 순서로 매핑합니다.
+
+- **DawooLight**: 컨트롤러당 시리얼 포트 1개(최대 4개), `0xFF` 헤더 + 커맨드 + XOR 체크섬 바이너리 프로토콜
+- **VitLight**: 시리얼 포트 1개로 16채널까지 제어, ASCII 프로토콜(`Dxxxyyy` 설정, `RxxDAT`/`ROONF` 조회, `ONN`/`OFF` + 채널 비트마스크)
+
+카메라 4대 구성에서는 상부 촬상 시 하부 조명 간섭 방지를 위한 별도 제어(`fn_Vit_ON`)가 있습니다.
+
+## 8. 레시피 / 설정 파일
+
+- **시스템 설정**: 실행 파일 위치의 `ImageGrabber.xml` (없으면 최초 실행 시 기본값으로 생성). 카메라 대수, Master IP/Port(최대 2계열), 그래버 벤더(`UseEuresys`)/Matrox 보드 모델(`BoardType`), GrabHeight, GiGA 보드 Node/Link/Mailbox 번호, 시리얼 포트 매핑, 이미지/로그 경로 등을 포함. 구버전 XML의 `<BoardType>Coaxlink Quad G3</BoardType>` 같은 자유 텍스트 값은 `MILBOARD_TYPE` enum 이름이 아니므로 로드 시 해당 필드만 무시되고 기본값으로 대체됩니다(다른 설정에는 영향 없음). Matrox 보드를 쓰는 현장은 업그레이드 시 `BoardType` 값을 enum 이름(예: `EN_BT_RADIENTCXP`)으로 갱신해야 합니다.
+- **레시피**: `C:/KEOC/Recipe/<RecipeName>.xml`. 카메라별 노광/게인(최대 4채널), 상/하부 조명값, Crop ROI 테이블(2계열 Master 분할 촬상 시 이미지당 2개 ROI) 포함.
+- XML 직렬화는 리플렉션 기반 커스텀 매니저(`010_Common/XmlManager.cs`, `FalconWpf` 네임스페이스)를 사용하며 `DataTable` 프로퍼티(ROI 등)도 자동 저장/복원합니다.
+
+## 9. 이미지/로그 저장
+
+- **이미지 저장 경로**는 앱 자체 설정이 아니라 외부 `D:\MAVT\INI\MAVT.ini`의 `[General] Image Save Path` 값을 `GetPrivateProfileString`으로 매 저장 시점마다 읽어와 사용합니다(상위 비전 시스템과 경로 연동).
+- 저장은 `DiskManager`의 백그라운드 스레드가 큐를 통해 비동기로 처리(`Cv2.ImWrite`).
+- 로그는 카테고리별 CSV로 `yyyy/MM/dd` 폴더 구조에 저장되며(`Trace`/`Communication`/`GiGABoard`/`Error`), `CallStack` 옵션 활성화 시 호출 스택(클래스/메서드) 정보가 함께 기록됩니다.
+- ⚠️ 드라이브 용량 기반 자동 삭제/보관 기능(파일 감시 + 30일 보관 정책)은 현재 코드상 **비활성화**되어 있습니다(`DiskManager.fn_StartThread` 주석 참고, 2025-04-01 현장 반영). 필요 시 재활성화 검토 필요.
+
+## 10. 사용자 권한
+
+`EN_AUTHORITY`: `EN_OPERATOR`(0) < `EN_MAINTENANCE`(1) < `EN_ENGINEER`(2). 비밀번호는 `100_Define/Global.cs`의 `Define` 클래스에 정의(`PASSWORD_EN = "keoc"`, OP/MA는 비워짐). Operator 권한으로는 설정 화면 진입 및 프로그램 종료가 제한됩니다(`MainWindow.Window_Closing`에서 강제 차단).
+
+## 11. 빌드 방법
+
+1. Visual Studio 2019/2022 + .NET Framework 4.8 Developer Pack
+2. NuGet 패키지 복원 (`OpenCvSharp4`, `OpenCvSharp4.runtime.win`, `OpenCvSharp4.WpfExtensions` 등, `packages.config` 참조)
+3. 다음 SDK/드라이버가 별도로 설치되어 있어야 합니다.
+   - **Euresys eGrabber** (Coaxlink 드라이버 + `EGrabber.NETFramework.dll`) — `bin\x64\Debug\` 경로에 배치 필요
+   - **Matrox Imaging Library(MIL)** — `Lib\Matrox.MatroxImagingLibrary.dll` (Matrox 보드 사용 시)
+   - **Interface APX-7402 SDK** (`apx7400Lib`, GiGA 광링크 보드)
+4. 플랫폼은 `x64`만 지원(AnyCPU 빌드 불가), 출력 경로는 `bin\x64\Debug` / `bin\x64\Release`
+
+## 12. 알려진 제약 / TODO
+
+- 드라이브 용량 기반 이미지 자동 삭제 기능 비활성화 상태(§9 참고)
+- Setup 화면에 `UseEuresys`/`BoardType` 편집 UI가 없어 현재는 `ImageGrabber.xml` 파일을 직접 수정해야 함
+- 2계열 Master(`JavasCount == 2`) 운용 시 ROI 인덱싱은 `이미지idx * 2 (+1)` 규칙에 의존하므로 레시피의 `CropROI` 행 순서가 중요

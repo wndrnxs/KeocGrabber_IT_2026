@@ -1,0 +1,31 @@
+﻿<Page x:Class="KeocGrabber.Page_SystemInfo"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+      xmlns:local="clr-namespace:KeocGrabber"
+      xmlns:uc="clr-namespace:FalconWpf"
+      mc:Ignorable="d" 
+      d:DesignHeight="60" d:DesignWidth="400"
+      Title="Page_SystemInfo">
+
+    <Page.DataContext>
+        <local:Page_SystemInfoDataContext x:Name="datacontext"/>
+    </Page.DataContext>
+
+    <GroupBox Header="System">
+        <UniformGrid Rows="2">
+            <UniformGrid.Resources>
+                <Style TargetType="uc:UserProgress">
+                    <Setter Property="Minimum" Value="0"/>
+                    <Setter Property="Maximum" Value="100"/>
+                    <Setter Property="Margin" Value="2"/>
+                </Style>
+            </UniformGrid.Resources>
+            <uc:UserProgress PrgLabel="CPU" PrgLabelWidth="35" Value="{Binding CPUVal}" Foreground="Black" BorderThickness="0"/>
+            <uc:UserProgress PrgLabel="RAM" PrgLabelWidth="35" Value="{Binding RAMVal}" Foreground="Black" BorderThickness="0"/>
+            <uc:UserProgress PrgLabel="D:\" PrgLabelWidth="35" Value="{Binding Drive1Val}" Foreground="Black" BorderThickness="0"/>
+            <uc:UserProgress PrgLabel="E:\" PrgLabelWidth="35" Value="{Binding Drive2Val}" Foreground="Black" BorderThickness="0"/>
+        </UniformGrid>
+    </GroupBox>
+</Page>

@@ -1,0 +1,260 @@
+﻿/*
+ *******************************************************************************
+ * 해당 소스는 현장 유지 보수 외에 다른 목적의 사용을 금합니다.
+ * - 주식회사 태루 -
+ *******************************************************************************
+ */
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Threading;
+using OpenCvSharp;
+using OpenCvSharp.Flann;
+using OpenCvSharp.WpfExtensions;
+
+namespace KeocGrabber
+{
+    class ImageManager
+    {
+        Mat[] m_matCamImgage;
+
+        int[] m_nAttachCount;
+
+        bool[] m_bIsImageComplate;
+
+        int m_nGrabWidth = 0;
+        int m_nGrabHeight = 0;
+        int m_nGrabChannel = 0;
+        int m_nCamCount = 0;
+
+        public bool[] IsImageCompalte { get { return m_bIsImageComplate; } }
+        public Mat[] CamImage { get { return m_matCamImgage; } }
+
+        public void fn_Init(int nCamCount, int nGrabWidth, int nGrabHeight, int nGrabChannel)
+        {
+            fn_CreateBuffer(nCamCount, nGrabWidth, nGrabHeight, nGrabChannel);
+            G.WriteLog($"Init.");
+        }
+
+        public void SetTestImage(Mat matimg, int index)
+        {
+            m_bIsImageComplate[index] = true;
+            m_matCamImgage[index] = matimg.Clone();
+        }
+
+        public void SetCompl(int index)
+        {
+            if (!m_matCamImgage[index].Empty())
+            {
+                m_bIsImageComplate[index] = !m_bIsImageComplate[index];
+            }
+        }
+
+        public void fn_CreateBuffer(int nCamCount, int nGrabWidth, int nGrabHeight, int nGrabChannel)
+        {
+            m_nCamCount = nCamCount;
+            m_nGrabWidth = nGrabWidth;
+            m_nGrabHeight = nGrabHeight;
+            m_nGrabChannel = nGrabChannel;
+
+            if (m_nGrabChannel != 1 && m_nGrabChannel != 3)
+            {
+                G.WriteLog($"Invalid Channel Type. {m_nGrabChannel}.", true);
+                return;
+            }
+
+            if (m_nGrabHeight <= 0 || m_nGrabWidth <= 0)
+            {
+                G.WriteLog($"Invalid Image Size. W : {m_nGrabWidth} | H : {m_nGrabHeight}.", true);
+                return;
+            }
+
+            if (m_matCamImgage != null)
+            {
+                for (int i = 0; i < m_matCamImgage.Length; i++)
+                {
+                    m_matCamImgage[i].Release();
+                }
+                m_matCamImgage = null;
+                m_nAttachCount = null;
+            }
+
+            MatType type = MatType.CV_8UC1;
+
+            switch (m_nGrabChannel)
+            {
+                case 1: type = MatType.CV_8UC1; break;
+                case 3: type = MatType.CV_8UC3; break;
+            }
+
+            m_matCamImgage = new Mat[m_nCamCount];
+            for (int i = 0; i < nCamCount; i++)
+            {
+                m_matCamImgage[i] = Mat.Zeros(new Size(m_nGrabWidth, m_nGrabHeight), MatType.CV_8UC1);
+            }
+            m_nAttachCount = new int[m_nCamCount];
+            m_bIsImageComplate = new bool[m_nCamCount];
+
+            G.WriteLog($"Create Buffer Complate.");
+        }
+
+
+        public void fn_Final()
+        {
+            if (m_matCamImgage != null)
+            {
+                for (int i = 0; i < m_matCamImgage.Length; i++)
+                {
+                    m_matCamImgage[i].Release();
+                }
+            }
+            G.WriteLog($"Final.");
+        }
+
+        public void InitAttachCount(int idx)
+        {
+            if (m_nAttachCount != null)
+                m_nAttachCount[idx] = 0;
+
+            if (m_bIsImageComplate != null)
+                m_bIsImageComplate[idx] = false;
+        }
+
+        public void InitComplFlag(int idx)
+        {
+            m_bIsImageComplate[idx] = false;
+        }
+        public void AttachImage(int idx, Mat img, int milindex)
+        {
+            try
+            {
+                Stopwatch sw = new Stopwatch();
+                sw.Start();
+
+                /** GrabCount를 Camera에서 관리하는 코드. Taeroo-kgseon 2025.04.01 11:36:16 */
+                //int dstStartY = milindex * img.Rows;
+                //int dstEndY = (milindex + 1) * img.Rows;
+
+                // dcf에서 일정 크기 만큼 그랩 할 때.
+                int dstStartY = m_nAttachCount[idx] * img.Rows;
+                int dstEndY = (m_nAttachCount[idx] + 1) * img.Rows;
+                int grabEndY = dstEndY; // 프레임 종료 확인용 변수.
+
+                int srcheight = m_matCamImgage[idx].Rows - dstStartY;
+                if (srcheight > img.Rows)
+                    srcheight = img.Rows;
+                else
+                {
+                    dstEndY = dstStartY + srcheight;
+                }
+                m_matCamImgage[idx][dstStartY, dstEndY, 0, img.Cols] = img[0, srcheight, 0, img.Cols].Clone();
+                //m_matCamImgage[idx].ToBytes(".bmp")
+                sw.Stop();
+                //G.WriteLog($"Attach Image [idx : {idx}] {sw.ElapsedTicks * 1000 / (double)Stopwatch.Frequency:F3} ms {m_nAttachCount[idx]}");
+
+                m_nAttachCount[idx]++;
+
+                // Grab 완료.
+                if (m_nGrabHeight <= grabEndY)
+                {
+                    if ((G.SYSTEM.CamCount == 2 && idx == 1) || (G.SYSTEM.CamCount == 4 && idx == 3))
+                    {
+                        G.LIGHT.fn_LightOffAll();
+                        G.bChk_Light_On = false;
+                        G.m_SafetyTimer.Stop();
+                    }
+                    ComplateImage(idx);
+                }
+                //~dcf에서 일정 크기 만큼 그랩 할 때.
+            }
+            catch (Exception ex)
+            {
+                G.WriteLog($"[Exception] {ex.Message}", true);
+            }
+        }
+
+        private void ComplateImage(int index)
+        {
+            //string strlotid = G.MSGPROC.CellID;
+            //if (strlotid == "")
+            //{
+            //    strlotid = $"EmptyID_{DateTime.Now:HHmmss}";
+            //    G.WriteLog($"[Error] Cell ID Empty.", true);
+            //}
+            m_bIsImageComplate[index] = true;
+
+            // MessageManager.fn_ProcRequest로 이동.
+            //G.DISKMANAGER.PushSaveImage(index, m_matCamImgage[index], strlotid);
+
+            //G.MAIN.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(delegate ()
+            //{
+            //    switch (index)
+            //    {
+            //        case 0: G.MAIN.MainView1.SetImage(WriteableBitmapConverter.ToWriteableBitmap(m_matCamImgage[index])); G.MAIN.MainView1.SetFitScale(); break;
+            //        case 1: G.MAIN.MainView2.SetImage(WriteableBitmapConverter.ToWriteableBitmap(m_matCamImgage[index])); G.MAIN.MainView2.SetFitScale(); break;
+            //        case 2: G.MAIN.MainView3.SetImage(WriteableBitmapConverter.ToWriteableBitmap(m_matCamImgage[index])); G.MAIN.MainView3.SetFitScale(); break;
+            //        case 3: G.MAIN.MainView4.SetImage(WriteableBitmapConverter.ToWriteableBitmap(m_matCamImgage[index])); G.MAIN.MainView4.SetFitScale(); break;
+            //    }
+            //}));
+            G.WriteLog($"{index} Grab Complate.");
+
+            G.GRABBER.fn_GrabStop(index);
+
+            // Grabber 4개 상태 확인 후 State 체크. 240524
+            if (index == G.SYSTEM.CamCount - 1)
+            {
+                if (G.GRABBER.IsGrabbing)
+                {
+                    G.GRABSTATE = EN_GRABSTATE.End;
+                }
+            }
+            // Grab Start는 메시지로 이동. 240524
+            //InitAttachCount(index);
+            //G.GRABBER.fn_GrabStart(index);
+        }
+
+
+        //테스트 용
+
+        /// <summary>
+        /// 테스트를 위해 강제로 이미지 파일을 로드하고 '완료' 플래그를 설정합니다.
+        /// </summary>
+        /// <param name="imageIndex">로드할 이미지 인덱스 (0-3)</param>
+        /// <param name="imagePath">로드할 이미지 파일 경로 (예: "C:\\test.jpg")</param>
+        /// <returns>성공 여부</returns>
+        public bool LoadTestImage(int imageIndex, string imagePath)
+        {
+            try
+            {
+                // 1. 임의의 이미지 파일을 로드합니다.
+                Mat testImage = new Mat(imagePath, ImreadModes.Grayscale);
+                if (testImage.Empty())
+                {
+                    G.WriteLog($"테스트 이미지 로드 실패: {imagePath}", true);
+                    return false;
+                }
+
+                // 2. CamImage 배열에 이미지를 할당합니다.
+                // (CamImage 배열이 초기화되어 있다고 가정)
+                this.CamImage[imageIndex] = testImage;
+
+                // 3. 💡 [핵심] fn_PopRequest가 통과되도록 완료 플래그를 true로 설정합니다.
+                this.IsImageCompalte[imageIndex] = true;
+
+                G.WriteLog($"테스트 이미지 {imageIndex}번 로드 완료 ({imagePath})");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                G.WriteLog($"테스트 이미지 로드 중 예외: {ex.Message}", true);
+                return false;
+            }
+        }
+    }
+}

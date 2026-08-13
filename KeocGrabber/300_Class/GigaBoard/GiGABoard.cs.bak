@@ -1,0 +1,771 @@
+﻿/*
+ *******************************************************************************
+ * 해당 소스는 현장 유지 보수 외에 다른 목적의 사용을 금합니다.
+ * - 주식회사 태루 -
+ *******************************************************************************
+ */
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Documents;
+using apx7400Lib;
+
+namespace KeocGrabber
+{
+    class GiGABoard
+    {
+        apx7400.BoardStatus[] gStatusBit = new apx7400.BoardStatus[2] { apx7400.BoardStatus.BIT_MSK_CH1_STATUS, apx7400.BoardStatus.BIT_MSK_CH2_STATUS };
+        //---------------------------------------------------------------------------------------
+        //↓↓↓↓↓ 사용하시는 환경에 맞게 변경해주세요 ↓↓↓↓↓ 
+        //---------------------------------------------------------------------------------------
+        int gBoardIndex = 0;                                // [APX-7402 보드 번호]    (0-)
+        int gLinkCh = 0;                                    // [대상과 통신하는 광 Ch]  (0:ch1, 1:ch2)
+        int gMyNodeID = 1;                                  // [자신의 노드 ID]        (1-31)
+        int gTargetNodeID = 2;                              // [대상 노드 ID]          (1-31)
+        int gMailBoxNo = 0;                                 // [우편함 번호]            (0-31)
+        int gMemoryNo = 2;                                  // [송신할 메모리 영역]      (0-3)
+        uint gMemoryOffset = 0x0;                           // [메모리 오프셋]   [Byte] (0-0x3FFFFFFC) ([4단위])
+        //static uint gDataSize = 0x10000000;               // [송신 사이즈]     [Byte] (4-0x40000000) ([4단위])
+        uint m_nTotalDataSize = 0;
+        //byte[] gOrgBuffer = new byte[gDataSize + 0x1000]; // [버퍼] ([4KB 얼라인먼트용으로 +0x1000 해 두다])
+        byte[,] gOrgBuffer = null;
+        Int64 gBuffer = 0;                                  // [송신용 버퍼] ([4KB 얼라인먼트 권장])
+        uint gBufferOffset = 0x0;                           // [버퍼 선두의 오프셋]
+        GCHandle gcHandle;
+
+        int m_nDataSize = 0;
+
+        uint m_LinkNodeCh1 = 0;
+        uint m_LinkNodeCh2 = 0;
+        uint m_Overlap = 0;
+        public uint LinkNodeCh1 { get { return m_LinkNodeCh1; } }
+        public uint LinkNodeCh2 { get { return m_LinkNodeCh2; } }
+
+        public bool IsOverlap { get { return m_Overlap != 0; } }
+
+        bool bConn = false;
+        public bool IsConnected { get { return bConn; } set { bConn = value; } }
+
+        public int MyNodeID { set { gMyNodeID = value; } }
+        public int LinkCh { set { gLinkCh = value; } }
+        public int MailBoxNo { set { gMailBoxNo = value; } }
+
+        private static readonly object _obj = new object();
+        public void fn_Init(int buffcount, int width, int height, int channel)
+        {
+            int nRtn = 0;
+            // GiGA Board TestCode
+            //width = 16384;
+            //height = 10000;
+            //height = 32000;
+            //channel = 1;
+            //buffcount = 4;
+
+            fn_CreateBuffer(buffcount, width, height, channel);
+
+            if (nRtn == 0) nRtn = Initialize();
+            bConn = nRtn == 0;
+            //if (nRtn == 0) nRtn = LinkNodesInitialize(targetNode);
+        }
+
+        public int fn_CreateBuffer(int buffcount, int width, int height, int channel)
+        {
+            int nRtn = 0;
+
+            try
+            {
+                m_nDataSize = width * height * channel;
+                int size = buffcount * m_nDataSize;
+
+                //gDataSize = (uint)((int)((size / 0x1000) + 0.5) * 0x1000);
+                // 올림 연산으로 메모리 영역 확보.
+                int nstride = (int)(Math.Ceiling((double)(width / 0x1000) + 1) * 0x1000) * channel;
+                m_nTotalDataSize = (uint)(nstride * height);
+
+                if (gcHandle.IsAllocated)
+                {
+                    gcHandle.Free();
+                    gOrgBuffer = null;
+                    gBuffer = 0;
+                }
+
+                // Array 한계로 2차원으로 변경. Int32.MaxValue - 56 == 2,147,483,591 -> UInt32.MaxValue (4,294,967,295)
+                // Array Copy Test 해야함.
+                gOrgBuffer = new byte[nstride, height];
+
+                // manage code Buffer[0] -> Win32 pointer address (4KB alignment address)
+                gcHandle = GCHandle.Alloc(gOrgBuffer, GCHandleType.Pinned);                 // set pin
+                gBuffer = (Int64)Marshal.UnsafeAddrOfPinnedArrayElement(gOrgBuffer, 0);
+                gBufferOffset = (uint)(gBuffer & 0xFFF);
+                gBuffer = (Int64)(gBuffer + (0x1000 - gBufferOffset));
+
+            }
+            catch (Exception ex)
+            {
+                G.WriteLog(ex.Message, true);
+                nRtn = -1;
+            }
+
+            return nRtn;
+        }
+
+        public apx7400.APX7400_BOARD_INFO fn_GetBoardInfo()
+        {
+            apx7400.APX7400_BOARD_INFO inf = new apx7400.APX7400_BOARD_INFO();
+            apx7400.ErrorCode rtn = 0;
+            // 보드 정보 가져오기
+            try
+            {
+                if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400GetBoardInfo(gBoardIndex, out inf)))
+                {
+                    G.WriteLog(String.Format(" apx7400GetBoardInfo error. [rtn={0}] ", rtn), true);
+                }
+            }
+            catch (Exception ex)
+            {
+                G.WriteLog(ex.Message, true);
+            }
+            return inf;
+        }
+
+        public int fn_SendData(int index, int memareano, int memoffset, byte[] data, int[] dstnode)
+        {
+            apx7400.ErrorCode rtn = 0;
+
+            lock (_obj)
+            {
+                int BoardIndex = gBoardIndex;                       // 보드 번호 
+                int LinkCh = gLinkCh;                               // 대상 노드 ID가 접속되어 있는 광모듈의 Ch(0or 1)
+                int TargetNodeID = gTargetNodeID;                   // 대상 노드 ID
+                uint TargetNodes = (uint)(1 << TargetNodeID);       // 대상 노드 ID를 비트로 지정
+                                                                    //int MemoryNo = gMemoryNo;                           // 기록하는 메모리 영역
+                                                                    //uint MemoryOffset = gMemoryOffset;                  // 쓰기 메모리 영역 상의 오프셋 (4Byte 단위)
+                int MemoryNo = memareano;                           // 기록하는 메모리 영역
+                uint MemoryOffset = (uint)memoffset;                  // 쓰기 메모리 영역 상의 오프셋 (4Byte 단위)
+                uint DataSize = m_nTotalDataSize;                   // 기록하는 데이터의 크기(4Byte 단위)
+                int MailBoxNo = gMailBoxNo;                         // 우편함 번호
+                uint MailBoxData = MemoryOffset | (uint)MemoryNo;   // 메일함 데이터(이 샘플에서는 메모리 영역과 오프셋을 기재)
+                                                                    //uint MailBoxRecv = 0;                               // 받은 메일함 데이터(이 샘플에서는 미사용)
+                Int64 Buffer = gBuffer;                             // 송신 버퍼
+                                                                    //uint Timeout = 60000;                               // 타임아웃[ms]
+                int StatusBit = (int)gStatusBit[LinkCh];            // 체크하는 보드 상태 요인
+                int GetStatus = 0;
+
+                // 대상 노드 설정.
+                // 240521 채널 구분할 것. 
+                //LinkNodeCh1
+                TargetNodes = 0;
+                uint ch1TargetNodes = 0;
+                uint ch2TargetNodes = 0;
+                uint tempnode;
+                for (int i = 0; i < dstnode.Length; i++)
+                {
+                    tempnode = (uint)(1 << dstnode[i]);
+                    if ((tempnode & LinkNodeCh1) > 0)
+                        ch1TargetNodes |= tempnode;
+                    if ((tempnode & LinkNodeCh2) > 0)
+                        ch2TargetNodes |= tempnode;
+                    TargetNodes |= (uint)(1 << dstnode[i]);
+                }
+
+                //! Link가 되어있지 않으면 에러메시지 출력.  Taeroo-kgseon - 2024/12/03  17:30
+                if (LinkNodeCh1 + LinkNodeCh2 == 0)
+                {
+                    G.WriteLog("LinkNode is Zero. Please Run LinkCheck.", true);
+                    rtn = (apx7400.ErrorCode)(-1);
+                }
+
+                //! TargetNode가 없다면 에러메시지 출력.  Taeroo-kgseon - 2024/12/03  17:32
+                if (ch1TargetNodes + ch2TargetNodes == 0)
+                {
+                    G.WriteLog("TargetNode is Zero. Please Check TargetNode.", true);
+                    rtn = (apx7400.ErrorCode)(-1);
+                }
+
+                Stopwatch sw = new Stopwatch();
+
+                // 데이터 크기 체크. 만약 데이터가 크다면 에러.
+                //int nCheckdatasize = (m_nDataSize * index + data.Length);
+                //if (nCheckdatasize > m_nTotalDataSize)
+                //{
+                //    G.WriteLog($"Send Data Error : Wrong Data Size. {nCheckdatasize} > {m_nTotalDataSize}", true);
+                //    goto __end;
+                //}
+
+                sw.Start();
+
+                // Data Copy (1차원 데이터 -> 2차원)
+                //Array.Copy(data, 0, gOrgBuffer, m_nDataSize * index, data.Length);
+
+                //int offset = (int)((0x1000 - gBufferOffset) + m_nDataSize * index);
+                int offset = (int)((0x1000 - gBufferOffset));
+                //offset += m_nDataSize * index;
+                //System.Buffer.BlockCopy(data, 0, gOrgBuffer, offset, data.Length * Marshal.SizeOf(data[0]));
+                System.Buffer.BlockCopy(data, 0, gOrgBuffer, offset, data.Length * Marshal.SizeOf(data[0]));
+                //Marshal.Copy(data, 0, (IntPtr)Buffer, data.Length * Marshal.SizeOf(data[0]));
+                if (ch1TargetNodes > 0)
+                {
+                    if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400WriteTargetMemory(BoardIndex, 0, ch1TargetNodes, MemoryNo, MemoryOffset, (IntPtr)Buffer, (uint)m_nDataSize, MailBoxNo, MailBoxData)))
+                    {
+                        G.WriteLog($"apx7400WriteTargetMemory error. ch1. [rtn={rtn}]", true);
+                        goto __end;
+                    }
+                    sw.Stop();
+                    double dTransferSpeed = (double)DataSize / ((double)sw.ElapsedTicks / (double)Stopwatch.Frequency) / 1024.0 / 1024.0;
+                    G.WriteLog($" * ch1 Send Speed = {dTransferSpeed:F3} [MB/s] ");
+                    sw.Reset();
+                }
+                if (ch2TargetNodes > 0)
+                {
+                    if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400WriteTargetMemory(BoardIndex, 1, ch2TargetNodes, MemoryNo, MemoryOffset, (IntPtr)Buffer, (uint)m_nDataSize, MailBoxNo, MailBoxData)))
+                    {
+                        G.WriteLog($"apx7400WriteTargetMemory error ch2. [rtn={rtn}]", true);
+                        goto __end;
+                    }
+                    sw.Stop();
+                    double dTransferSpeed = (double)DataSize / ((double)sw.ElapsedTicks / (double)Stopwatch.Frequency) / 1024.0 / 1024.0;
+                    G.WriteLog($" * ch2 Send Speed = {dTransferSpeed:F3} [MB/s] ");
+                    sw.Reset();
+                }
+
+            // 메일함 수신 대기 
+            //if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400RecvMailBox(BoardIndex, MailBoxNo, out MailBoxRecv, Timeout)))
+            //{
+            //    G.WriteLog(String.Format("apx7400RecvMailBox error. [rtn={0}] ", rtn), true);
+            //    goto __end;
+            //}
+
+
+            __end:
+                // 통신 에러 발생 확인 
+                GetStatus = (int)apx7400.apx7400WaitErrorStatus(BoardIndex, StatusBit, 0);
+
+                if (GetStatus == (int)apx7400.ErrorCode.APX7400_TIME_OUT)
+                {
+                    // 통신 에러 없음 
+                }
+                else if (GetStatus > 0)
+                {
+                    G.WriteLog(String.Format(" ### Error status detect. [Status=0x{0:X}] ### ", GetStatus), true);
+                    rtn = (apx7400.ErrorCode)(-1);
+                }
+                else
+                {
+                    G.WriteLog(String.Format(" apx7400WaitErrorStatus error. [rtn={0}] ", GetStatus), true);
+                    rtn = (apx7400.ErrorCode)GetStatus;
+                }
+
+            }
+            return ((int)rtn);
+        }
+
+        public void fn_Final()
+        {
+            int nRtn = 0;
+            if (nRtn == 0) nRtn = Finalize();
+
+            // un-set pin 
+            gcHandle.Free();
+        }
+
+        //*****************************************************************************
+        // 메인 루틴
+        //*****************************************************************************
+        void Main2(string[] args)
+        {
+            int rtn = 0;
+
+            Console.WriteLine("-------------------------------------------");
+            Console.WriteLine(" APX-7402 Sample Program [Memory/Sender]   ");
+            Console.WriteLine("-------------------------------------------");
+            Console.WriteLine(" Parameters ");
+            Console.WriteLine(String.Format("  - gBoardIndex   = {0} ", gBoardIndex));
+            Console.WriteLine(String.Format("  - gMyNodeID     = {0} ", gMyNodeID));
+            Console.WriteLine(String.Format("  - gTargetNodeID = {0} ", gTargetNodeID));
+            Console.WriteLine(String.Format("  - gMailBoxNo    = {0} ", gMailBoxNo));
+            Console.WriteLine(String.Format("  - gMemoryNo     = {0} ", gMemoryNo));
+            Console.WriteLine(String.Format("  - gMemoryOffset = 0x{0:X} ", gMemoryOffset));
+            Console.WriteLine(String.Format("  - gDataSize     = 0x{0:X} ", m_nTotalDataSize));
+            Console.WriteLine("-------------------------------------------");
+
+            // manage code Buffer[0] -> Win32 pointer address (4KB alignment address)
+            gcHandle = GCHandle.Alloc(gOrgBuffer, GCHandleType.Pinned);                 // set pin
+            gBuffer = (Int64)Marshal.UnsafeAddrOfPinnedArrayElement(gOrgBuffer, 0);
+            gBufferOffset = (uint)(gBuffer & 0xFFF);
+            gBuffer = (Int64)(gBuffer + (0x1000 - gBufferOffset));
+
+            /*--------------------------------------------------*
+             * 1.기동 처리
+             *--------------------------------------------------*/
+            if (0 != (rtn = Initialize()))
+            {
+                Console.WriteLine(String.Format("Initialize error. [rtn={0}] ", rtn));
+                goto __end;
+            }
+
+            /*--------------------------------------------------*
+             * 2.통신 초기화 
+             *--------------------------------------------------*/
+            if (0 != (rtn = LinkNodesInitialize()))
+            {
+                Console.WriteLine(String.Format("LinkNodes error. [rtn={0}] ", rtn));
+                goto __end;
+            }
+
+            /*--------------------------------------------------*
+             * 3.데이터 전송 + 전송완료 알림 + 수신완료 알림 대기
+             *--------------------------------------------------*/
+            if (0 != (rtn = SendData()))
+            {
+                Console.WriteLine(String.Format("SendData error. [rtn={0}] ", rtn));
+                goto __end;
+            }
+
+
+        __end:
+            /*--------------------------------------------------*
+             * 종료 처리 
+             *--------------------------------------------------*/
+            if (0 != Finalize())
+            {
+                Console.WriteLine("Finalize error. ");
+            }
+            if (rtn == 0)
+            {
+                Console.WriteLine("!!!!! Success !!!!!");
+            }
+            else
+            {
+                Console.WriteLine("XXXXX Failed XXXXX");
+            }
+
+            // un-set pin 
+            gcHandle.Free();
+
+            // 키 입력 대기
+
+            Console.WriteLine("-------------------------------------------");
+            Console.WriteLine(" APX-7402 Sample Program End               ");
+            Console.WriteLine("-------------------------------------------");
+            Console.ReadLine();
+
+            return;
+        }
+
+
+        //*****************************************************************************
+        // 기동 처리 
+        //-----------------------------------------------------------------------------
+        // [내용]
+        //  APX-7402를 초기화하여 APX-7402의 정보를 표시합니다
+        //*****************************************************************************
+        int Initialize()
+        {
+            apx7400.ErrorCode rtn = 0;
+            int BoardIndex;
+            int ApxNum = 0;
+            apx7400 Instance = new apx7400();
+
+
+            G.WriteLog("-------------------------------------------");
+            G.WriteLog(" APX-7402 Initialize                       ");
+            G.WriteLog("-------------------------------------------");
+
+            try
+            {
+                // 라이브러리 초기화 
+                if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400Initialize()))
+                {
+                    G.WriteLog(String.Format(" apx7400Initialize error. [rtn={0}] ", rtn), true);
+                    return ((int)rtn);
+                }
+
+                // 탑재 매수를 취득
+                if (0 == (rtn = apx7400.apx7400GetBoardCount()))
+                {
+                    G.WriteLog(" apx7400GetBoardCount error. APX-7402 not found. ", true);
+                    return (-1);
+                }
+                ApxNum = (int)rtn;
+                G.WriteLog(String.Format("## Number of APX-7402 on the system = {0} ", ApxNum));
+
+                // 보드 정보 표시
+                for (BoardIndex = 0; BoardIndex < ApxNum; BoardIndex++)
+                {
+                    apx7400.APX7400_BOARD_INFO inf;
+
+                    G.WriteLog("--------------------------------------------");
+                    G.WriteLog(String.Format("## APX-7402 Board [{0}] Info ", BoardIndex));
+                    G.WriteLog("--------------------------------------------");
+
+                    // 보드 정보 가져오기
+                    if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400GetBoardInfo(BoardIndex, out inf)))
+                    {
+                        G.WriteLog(String.Format(" apx7400GetBoardInfo error. [rtn={0}] ", rtn), true);
+                        return ((int)rtn);
+                    }
+                    G.WriteLog(String.Format(" # APX Type          : {0} ", (inf.BoardType == 0) ? "APX-7401" : "APX-7402"));
+                    G.WriteLog(String.Format(" # Optical Channel   : {0} ch ", inf.OptChNum));
+                    G.WriteLog(String.Format(" # Memory Area       : x{0} ", inf.MemoryAreaNum));
+                    G.WriteLog(String.Format(" # Memory Size       : {0} [MB] ", inf.MemoryAreaSize));
+                    G.WriteLog(String.Format(" # DipSW             : 0x{0:X} ", inf.DipSW));
+                    G.WriteLog(String.Format(" # Board Temperature : {0} [degreees C] ", inf.BoardTemp));
+                    G.WriteLog(String.Format(" # FPGA Temperature  : {0} [degreees C] ", inf.FpgaTemp));
+                    G.WriteLog(String.Format(" # FPGA Version      : 20{0:X2}/{1:X2}/{2:X2} REV.{3:X2} ", Instance.FPGA_YEAR(inf.FpgaVer), Instance.FPGA_MON(inf.FpgaVer), Instance.FPGA_DAY(inf.FpgaVer), Instance.FPGA_REV(inf.FpgaVer)));
+                    G.WriteLog(String.Format(" # Driver Version    : {0:X}.{1:X}.{2:X}.{3:X} ", Instance.SDK_MAJOR(inf.DriverVer), Instance.SDK_MINOR(inf.DriverVer), Instance.SDK_BUILD(inf.DriverVer), Instance.SDK_REV(inf.DriverVer)));
+                    G.WriteLog(String.Format(" # Library Version   : {0:X}.{1:X}.{2:X}.{3:X} ", Instance.SDK_MAJOR(inf.LibraryVer), Instance.SDK_MINOR(inf.LibraryVer), Instance.SDK_BUILD(inf.LibraryVer), Instance.SDK_REV(inf.LibraryVer)));
+                    G.WriteLog("--------------------------------------------");
+
+                    // 노드 ID를 설정 (1-31)
+                    if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400SetNodeID(BoardIndex, gMyNodeID)))
+                    {
+                        G.WriteLog(String.Format(" apx7400SetNodeID error. [rtn={0}] ", rtn), true);
+                        return ((int)rtn);
+                    }
+
+                    int getNodeID = 0;
+                    // 설정한 노드 ID 가져오기/보기
+                    if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400GetNodeID(BoardIndex, out getNodeID)))
+                    {
+                        G.WriteLog(String.Format(" apx7400GetNodeID error. [rtn={0}] ", rtn), true);
+                        return ((int)rtn);
+                    }
+                    G.WriteLog($"## APX-7402 Board{BoardIndex} NodeID = {getNodeID}");
+                }
+
+            }
+            catch (Exception ex)
+            {
+                G.WriteLog(ex.Message, true);
+            }
+            return (0);
+        }
+
+
+        //*****************************************************************************
+        // 종료 처리 
+        //-----------------------------------------------------------------------------
+        // [내용]
+        //  APX-7402의 종료 처리를 실시합니다
+        //*****************************************************************************
+        int Finalize()
+        {
+            apx7400.ErrorCode rtn = 0;
+
+            G.WriteLog("-------------------------------------------");
+            G.WriteLog(" APX-7402 Finalize                         ");
+            G.WriteLog("-------------------------------------------");
+            try
+            {
+                // 라이브러리종료처리
+                if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400Finalize()))
+                {
+                    G.WriteLog(String.Format(" apx7400Finalize error. [rtn={0}] ", rtn), true);
+                    return ((int)rtn);
+                }
+            }
+            catch (Exception ex)
+            {
+                G.WriteLog(ex.Message, true);
+            }
+
+            return (0);
+        }
+
+        public int fn_LinkCheck()
+        {
+            apx7400.ErrorCode rtn = 0;
+            if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400GetLinkNodes(gBoardIndex, out m_LinkNodeCh1, out m_LinkNodeCh2, out m_Overlap)))
+            {
+                G.WriteLog(String.Format(" apx7400GetLinkNodes error. [rtn={0}] ", rtn), true);
+            }
+            return (int)rtn;
+        }
+
+        public int fn_LinkNodesInitialize(int mynodeid, int targetnodeid, int mailbox)
+        {
+            apx7400.ErrorCode rtn = 0;
+            int getNodeID = 0;
+            int BoardIndex = gBoardIndex;       // [보드 번호]
+            int MyNodeID = mynodeid;           // [자신의 노드 ID]
+            int TargetNodeID = targetnodeid;          // [대상 노드 ID]
+            int MailBoxNo = mailbox;            // [우편함 번호]
+            uint NodesCh1 = 0;                  // [광 Ch1에 존재하는 노드 ID를 비트로 저장]
+            uint NodesCh2 = 0;                  // [광 Ch2에 존재하는 노드 ID를 비트로 저장]
+            uint Overlap = 0;                   // [중복 노드 ID]
+            uint MailBoxData = 0;
+
+
+            G.WriteLog("-------------------------------------------");
+            G.WriteLog(" APX-7402 Link Nodes Initialize            ");
+            G.WriteLog("-------------------------------------------");
+
+            try
+            {
+                // 메일함 수신 통지를 클리어
+                apx7400.apx7400RecvMailBox(BoardIndex, MailBoxNo, out MailBoxData, 0);
+
+                // 노드 ID를 설정 (1-31)
+                if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400SetNodeID(BoardIndex, MyNodeID)))
+                {
+                    G.WriteLog(String.Format(" apx7400SetNodeID error. [rtn={0}] ", rtn), true);
+                    return ((int)rtn);
+                }
+
+                // 설정한 노드 ID 가져오기/보기
+                if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400GetNodeID(BoardIndex, out getNodeID)))
+                {
+                    G.WriteLog(String.Format(" apx7400GetNodeID error. [rtn={0}] ", rtn), true);
+                    return ((int)rtn);
+                }
+                G.WriteLog($"## APX-7402 Board{BoardIndex} NodeID = {getNodeID}");
+
+
+                // 마주 오는 노드 ID가 링크 상에 존재할 때까지 기다리다
+                while (true)
+                {
+
+                    // 링크된 노드 ID 정보와 중복된 노드 ID 정보 가져오기
+                    if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400GetLinkNodes(BoardIndex, out NodesCh1, out NodesCh2, out Overlap)))
+                    {
+                        G.WriteLog(String.Format(" apx7400GetLinkNodes error. [rtn={0}] ", rtn), true);
+                        return ((int)rtn);
+                    }
+
+                    // 각 Ch의 링크 상의 노드 ID 정보(비트) 표시
+                    G.WriteLog(String.Format("Opt Ch[1] Link Nodes = 0x{0:X} ", NodesCh1));
+                    G.WriteLog(String.Format("Opt Ch[2] Link Nodes = 0x{0:X} ", NodesCh2));
+
+                    // 링크상의 노드 ID가 중복되어 있으면 에러 
+                    if (Overlap != 0)
+                    {
+                        G.WriteLog(String.Format("NodeID Overlap in Link = 0x{0:X} ", Overlap), true);
+                        return (-1);
+                    }
+
+                    // 대향 노드 ID가 링크 내에 존재하고 있으면 빠진다
+                    if ((NodesCh1 & (1 << TargetNodeID)) != 0)
+                    {
+                        gLinkCh = 0;    // [ch1로 링크]
+                        bConn = true;
+                        break;
+                    }
+                    if ((NodesCh2 & (1 << TargetNodeID)) != 0)
+                    {
+                        gLinkCh = 1;    // [ch2로 링크]
+                        bConn = true;
+                        break;
+                    }
+
+                    // 링크내에 없기 때문에 리트라이
+                    G.WriteLog(String.Format("NodeID={0} not found. ", TargetNodeID));
+                    System.Threading.Thread.Sleep(3000);
+                }
+
+                // 보드상태클리어
+                apx7400.apx7400WaitErrorStatus(BoardIndex, (int)apx7400.BoardStatus.BIT_MSK_ALL_STATUS, 0);
+            }
+            catch (Exception ex)
+            {
+                G.WriteLog(ex.Message, true);
+            }
+            return (0);
+        }
+
+
+        //*****************************************************************************
+        // 통신 초기화
+        //-----------------------------------------------------------------------------
+        // [내용]
+        //  APX-7402의 노드 ID를 설정하고 대상 노드가 링크 상에 존재할 때까지 대기합니다.
+        //*****************************************************************************
+        int LinkNodesInitialize(int targetnodeid = 2)
+        {
+            apx7400.ErrorCode rtn = 0;
+            int getNodeID = 0;
+            int BoardIndex = gBoardIndex;       // [보드 번호]
+            int MyNodeID = gMyNodeID;           // [자신의 노드 ID]
+            //int TargetNodeID = gTargetNodeID;   // [대상 노드 ID]
+            int TargetNodeID = targetnodeid;   // [대상 노드 ID]
+            int MailBoxNo = gMailBoxNo;         // [우편함 번호]
+            uint NodesCh1 = 0;                  // [광 Ch1에 존재하는 노드 ID를 비트로 저장]
+            uint NodesCh2 = 0;                  // [광 Ch2에 존재하는 노드 ID를 비트로 저장]
+            uint Overlap = 0;                   // [중복 노드 ID]
+            uint MailBoxData = 0;
+
+
+            G.WriteLog("-------------------------------------------");
+            G.WriteLog(" APX-7402 Link Nodes Initialize            ");
+            G.WriteLog("-------------------------------------------");
+
+            try
+            {
+                // 메일함 수신 통지를 클리어
+                apx7400.apx7400RecvMailBox(BoardIndex, MailBoxNo, out MailBoxData, 0);
+
+                // 노드 ID를 설정 (1-31)
+                if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400SetNodeID(BoardIndex, MyNodeID)))
+                {
+                    G.WriteLog(String.Format(" apx7400SetNodeID error. [rtn={0}] ", rtn), true);
+                    return ((int)rtn);
+                }
+
+                // 설정한 노드 ID 가져오기/보기
+                if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400GetNodeID(BoardIndex, out getNodeID)))
+                {
+                    G.WriteLog(String.Format(" apx7400GetNodeID error. [rtn={0}] ", rtn), true);
+                    return ((int)rtn);
+                }
+                G.WriteLog($"## APX-7402 Board{BoardIndex} NodeID = {getNodeID}");
+
+                Stopwatch sw = new Stopwatch();
+                sw.Start();
+                // 마주 오는 노드 ID가 링크 상에 존재할 때까지 기다리다
+                while (true)
+                {
+
+                    // 링크된 노드 ID 정보와 중복된 노드 ID 정보 가져오기
+                    if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400GetLinkNodes(BoardIndex, out NodesCh1, out NodesCh2, out Overlap)))
+                    {
+                        G.WriteLog(String.Format(" apx7400GetLinkNodes error. [rtn={0}] ", rtn), true);
+                        return ((int)rtn);
+                    }
+
+                    // 각 Ch의 링크 상의 노드 ID 정보(비트) 표시
+                    G.WriteLog(String.Format("Opt Ch[1] Link Nodes = 0x{0:X} ", NodesCh1));
+                    G.WriteLog(String.Format("Opt Ch[2] Link Nodes = 0x{0:X} ", NodesCh2));
+
+                    // 링크상의 노드 ID가 중복되어 있으면 에러 
+                    if (Overlap != 0)
+                    {
+                        G.WriteLog(String.Format("NodeID Overlap in Link = 0x{0:X} ", Overlap), true);
+                        return (-1);
+                    }
+
+                    // 대향 노드 ID가 링크 내에 존재하고 있으면 빠진다
+                    if ((NodesCh1 & (1 << TargetNodeID)) != 0)
+                    {
+                        gLinkCh = 0;    // [ch1로 링크]
+                        bConn = true;
+                        break;
+                    }
+                    if ((NodesCh2 & (1 << TargetNodeID)) != 0)
+                    {
+                        gLinkCh = 1;    // [ch2로 링크]
+                        bConn = true;
+                        break;
+                    }
+
+                    // 링크내에 없기 때문에 리트라이
+                    G.WriteLog(String.Format("NodeID={0} not found. ", TargetNodeID));
+                    System.Threading.Thread.Sleep(3000);
+                    if (sw.ElapsedMilliseconds > 10000)
+                    {
+                        G.WriteLog($"LinkTest Time-Out",true);
+                        break;
+                    }
+                }
+
+                // 보드상태클리어
+                apx7400.apx7400WaitErrorStatus(BoardIndex, (int)apx7400.BoardStatus.BIT_MSK_ALL_STATUS, 0);
+            }
+            catch(Exception ex)
+            {
+                G.WriteLog(ex.Message, true);
+            }
+            return (0);
+        }
+
+
+        //*****************************************************************************
+        // 데이터 전송 + 메일함 전송(송신 완료 알림) (x100회)
+        //-----------------------------------------------------------------------------
+        // [내용]
+        //  마주 오는 APX-7402의 메모리 영역에 데이터를 송신한 후, 메일 박스(송신 완료)를 송신합니다
+        //  다음으로 대상으로부터의 메일 박스(수신 완료)를 대기합니다.
+        //*****************************************************************************
+        int SendData()
+        {
+            apx7400.ErrorCode rtn = 0;
+            int BoardIndex = gBoardIndex;               // 보드 번호 
+            int LinkCh = gLinkCh;                   // 대상 노드 ID가 접속되어 있는 광모듈의 Ch(0or 1)
+            int TargetNodeID = gTargetNodeID;               // 대상 노드 ID
+            uint TargetNodes = (uint)(1 << TargetNodeID);   // 마주 오는 노드 ID를 비트로 지정
+            int MemoryNo = gMemoryNo;                   // 기록하는 메모리 영역
+            uint MemoryOffset = gMemoryOffset;              // 쓰기 메모리 영역 상의 오프셋 (4Byte 단위)
+            uint DataSize = m_nTotalDataSize;                  // 기록하는 데이터의 크기(4Byte 단위)
+            int MailBoxNo = gMailBoxNo;                 // 우편함 번호
+            uint MailBoxData = MemoryOffset | (uint)MemoryNo;   // 메일함 데이터(이 샘플에서는 메모리 영역과 오프셋을 기재)
+            uint MailBoxRecv = 0;                           // 받은 메일함 데이터(이 샘플에서는 미사용)
+            Int64 Buffer = gBuffer;                     // 송신 버퍼
+            uint MaxLoop = 100;                         // 송신하는 횟수
+            uint Timeout = 60000;                       // 타임아웃[ms]
+            int StatusBit = (int)gStatusBit[LinkCh];    // 체크하는 보드 상태 요인
+            int GetStatus = 0;
+            uint pos, loop;
+
+            Stopwatch sw = new Stopwatch();
+
+
+            Console.WriteLine("-------------------------------------------");
+            Console.WriteLine(String.Format(" APX-7402 Send Data (to NodeID{0})", TargetNodeID));
+            Console.WriteLine("-------------------------------------------");
+
+            // 송신 데이터 작성 (인크리먼트 데이터)
+            for (pos = 0; pos < DataSize; pos++)
+            {
+                //gOrgBuffer[pos + (0x1000 - gBufferOffset)] = (byte)pos;
+            }
+
+            // 100회 송신
+            for (loop = 0; loop < MaxLoop; loop++)
+            {
+
+                // 데이터 및 메일함(송신 완료) 전송
+                sw.Start();
+
+                if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400WriteTargetMemory(BoardIndex, LinkCh, TargetNodes, MemoryNo, MemoryOffset, (IntPtr)Buffer, DataSize, MailBoxNo, MailBoxData)))
+                {
+                    Console.WriteLine(String.Format("apx7400WriteTargetMemory error. [rtn={0}] ", rtn));
+                    goto __end;
+                }
+                sw.Stop();
+                Console.WriteLine(" * [{0}] Send Speed = {1:f3} [MB/s] ", loop, (double)DataSize / ((double)sw.ElapsedTicks / (double)Stopwatch.Frequency) / 1024.0 / 1024.0);
+                sw.Reset();
+
+                // 메일함 수신 대기 
+                if (apx7400.ErrorCode.APX7400_NO_ERROR != (rtn = apx7400.apx7400RecvMailBox(BoardIndex, MailBoxNo, out MailBoxRecv, Timeout)))
+                {
+                    Console.WriteLine(String.Format("apx7400RecvMailBox error. [rtn={0}] ", rtn));
+                    goto __end;
+                }
+            }
+
+
+        __end:
+            // 통신 에러 발생 확인 
+            GetStatus = (int)apx7400.apx7400WaitErrorStatus(BoardIndex, StatusBit, 0);
+
+            if (GetStatus == (int)apx7400.ErrorCode.APX7400_TIME_OUT)
+            {
+                // 통신 에러 없음 
+            }
+            else if (GetStatus > 0)
+            {
+                Console.WriteLine(String.Format(" ### Error status detect. [Status=0x{0:X}] ### ", GetStatus));
+                rtn = (apx7400.ErrorCode)(-1);
+            }
+            else
+            {
+                Console.WriteLine(String.Format(" apx7400WaitErrorStatus error. [rtn={0}] ", GetStatus));
+                rtn = (apx7400.ErrorCode)GetStatus;
+            }
+
+            return ((int)rtn);
+        }
+    }
+}
