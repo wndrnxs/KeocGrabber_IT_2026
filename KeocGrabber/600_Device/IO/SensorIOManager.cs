@@ -221,18 +221,28 @@ namespace KeocGrabber
             }
         }
 
-        /// <summary>UI 표기 문자열. 예) "#12  10:33:21.123 (25ms)" (누적 횟수 / 검출 시각 / 펄스 폭)</summary>
-        public string fn_GetInfoText(int camIdx)
+        /// <summary>신호(상승 에지) 누적 횟수</summary>
+        public long fn_GetCount(int camIdx)
         {
             lock (m_lock)
             {
                 SensorChannel st = fn_GetChannel(camIdx);
-                if (st == null) return "-";
-                if (!st.Valid) return "No Read";
-                if (st.Count == 0) return "Wait";
+                return st != null ? st.Count : 0;
+            }
+        }
 
-                string strRet = $"#{st.Count}  {st.RiseTime:HH:mm:ss.fff}";
-                if (st.PulseMs > 0) strRet += $" ({st.PulseMs:F0}ms)";
+        /// <summary>마우스 오버용 상세 문자열 (마지막 검출 시각 / 펄스 폭)</summary>
+        public string fn_GetDetailText(int camIdx)
+        {
+            lock (m_lock)
+            {
+                SensorChannel st = fn_GetChannel(camIdx);
+                if (st == null) return "그래버 없음";
+                if (!st.Valid) return "라인 상태를 읽지 못함";
+                if (st.Count == 0) return "신호 대기 중";
+
+                string strRet = $"마지막 검출 {st.RiseTime:HH:mm:ss.fff} / 누적 {st.Count}회";
+                if (st.PulseMs > 0) strRet += $"\n펄스 폭 {st.PulseMs:F0}ms";
                 return strRet;
             }
         }

@@ -63,6 +63,7 @@ namespace KeocGrabber
         public bool Sensor3On { get { return bSensor3On; } set { if (bSensor3On == value) return; bSensor3On = value; OnPropertyChanged(); } }
         public bool Sensor4On { get { return bSensor4On; } set { if (bSensor4On == value) return; bSensor4On = value; OnPropertyChanged(); } }
 
+        // Info = 램프 옆 짧은 표기("CAM1 12"), Detail = 마우스 오버 시 상세(검출 시각/펄스 폭)
         string strSensor1Info = "-";
         string strSensor2Info = "-";
         string strSensor3Info = "-";
@@ -73,14 +74,24 @@ namespace KeocGrabber
         public string Sensor3Info { get { return strSensor3Info; } set { if (strSensor3Info == value) return; strSensor3Info = value; OnPropertyChanged(); } }
         public string Sensor4Info { get { return strSensor4Info; } set { if (strSensor4Info == value) return; strSensor4Info = value; OnPropertyChanged(); } }
 
-        public void SetSensor(int idx, bool bOn, string strInfo)
+        string strSensor1Detail = "";
+        string strSensor2Detail = "";
+        string strSensor3Detail = "";
+        string strSensor4Detail = "";
+
+        public string Sensor1Detail { get { return strSensor1Detail; } set { if (strSensor1Detail == value) return; strSensor1Detail = value; OnPropertyChanged(); } }
+        public string Sensor2Detail { get { return strSensor2Detail; } set { if (strSensor2Detail == value) return; strSensor2Detail = value; OnPropertyChanged(); } }
+        public string Sensor3Detail { get { return strSensor3Detail; } set { if (strSensor3Detail == value) return; strSensor3Detail = value; OnPropertyChanged(); } }
+        public string Sensor4Detail { get { return strSensor4Detail; } set { if (strSensor4Detail == value) return; strSensor4Detail = value; OnPropertyChanged(); } }
+
+        public void SetSensor(int idx, bool bOn, string strInfo, string strDetail)
         {
             switch (idx)
             {
-                case 0: Sensor1On = bOn; Sensor1Info = strInfo; break;
-                case 1: Sensor2On = bOn; Sensor2Info = strInfo; break;
-                case 2: Sensor3On = bOn; Sensor3Info = strInfo; break;
-                case 3: Sensor4On = bOn; Sensor4Info = strInfo; break;
+                case 0: Sensor1On = bOn; Sensor1Info = strInfo; Sensor1Detail = strDetail; break;
+                case 1: Sensor2On = bOn; Sensor2Info = strInfo; Sensor2Detail = strDetail; break;
+                case 2: Sensor3On = bOn; Sensor3Info = strInfo; Sensor3Detail = strDetail; break;
+                case 3: Sensor4On = bOn; Sensor4Info = strInfo; Sensor4Detail = strDetail; break;
             }
         }
 
@@ -128,24 +139,28 @@ namespace KeocGrabber
         /// </summary>
         public void Update_IOStatus()
         {
-            string strLine = G.GRABBER.fn_GetSensorLine(0);
-            datacontext.SensorTitle = G.SENSORIO.IsRunning
-                ? $"Sensor I/O [{strLine} : 15Pin D-Sub #3(+) / #12(-)]"
-                : $"Sensor I/O [{strLine} : 사용 안 함]";
+            bool bRun = G.SENSORIO.IsRunning;
+            datacontext.SensorTitle = bRun
+                ? $"SENSOR {G.GRABBER.fn_GetSensorLine(0)}"
+                : "SENSOR OFF";
 
             for (int i = 0; i < Define.CAM_COUNT; i++)
             {
-                if (!G.SENSORIO.IsRunning)
+                if (!bRun)
                 {
-                    datacontext.SetSensor(i, false, "-");
+                    datacontext.SetSensor(i, false, $"CAM{i + 1} -", "Sensor I/O 사용 안 함");
                     continue;
                 }
-                datacontext.SetSensor(i, G.SENSORIO.fn_IsSignalOn(i), G.SENSORIO.fn_GetInfoText(i));
+                datacontext.SetSensor(i, G.SENSORIO.fn_IsSignalOn(i),
+                                         $"CAM{i + 1} {G.SENSORIO.fn_GetCount(i)}",
+                                         G.SENSORIO.fn_GetDetailText(i));
             }
         }
 
-        private void SensorIO_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        private void SensorIO_MouseDown(object sender, MouseButtonEventArgs e)
         {
+            if (e.ClickCount != 2) return;
+
             if (G.USERLEVEL != EN_AUTHORITY.EN_OPERATOR)
             {
                 G.SENSORIO.fn_ResetCount();

@@ -68,7 +68,7 @@
                 <RowDefinition Height="60"/>
                 <RowDefinition Height="60"/>
                 <RowDefinition Height="60"/>
-                <RowDefinition Height="70"/>
+                <RowDefinition Height="22"/>
                 <RowDefinition Height="4*"/>
             </Grid.RowDefinitions>
             <Grid Grid.Row="0">
@@ -167,73 +167,78 @@
                 </GroupBox>
             </Grid>
             <Grid Grid.Row="4">
-                <!-- 센서 입력 표시. 램프 = 신호 검출(상승 에지 후 SensorLampHold 동안 유지),
-                     아래 텍스트 = 누적 횟수 / 마지막 검출 시각 / 펄스 폭.
+                <!-- 센서 입력 표시(한 줄). 램프 = 신호 검출(상승 에지 후 SensorLampHold 동안 유지),
+                     옆 숫자 = 누적 횟수. 마지막 검출 시각/펄스 폭은 마우스를 올리면 표시된다.
                      Operator 외 권한에서 더블클릭하면 카운트 초기화. -->
-                <GroupBox Header="{Binding SensorTitle}" TextBlock.FontSize="10" MouseDoubleClick="SensorIO_MouseDoubleClick">
-                    <UniformGrid Rows="1">
-                        <GroupBox x:Name="IOCam1" Header="FRONT" TextBlock.FontSize="8">
-                            <Border>
-                                <Border.Style>
-                                    <Style TargetType="{x:Type Border}">
-                                        <Setter Property="Background" Value="Gainsboro"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Sensor1On}" Value="True">
-                                                <Setter Property="Background" Value="{StaticResource OKBrush}"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Border.Style>
-                                <TextBlock Text="{Binding Sensor1Info}" TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                        </GroupBox>
-                        <GroupBox x:Name="IOCam2" Header="REAR" TextBlock.FontSize="8">
-                            <Border>
-                                <Border.Style>
-                                    <Style TargetType="{x:Type Border}">
-                                        <Setter Property="Background" Value="Gainsboro"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Sensor2On}" Value="True">
-                                                <Setter Property="Background" Value="{StaticResource OKBrush}"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Border.Style>
-                                <TextBlock Text="{Binding Sensor2Info}" TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                        </GroupBox>
-                        <GroupBox x:Name="IOCam3" Header="IN SIDE" TextBlock.FontSize="8">
-                            <Border>
-                                <Border.Style>
-                                    <Style TargetType="{x:Type Border}">
-                                        <Setter Property="Background" Value="Gainsboro"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Sensor3On}" Value="True">
-                                                <Setter Property="Background" Value="{StaticResource OKBrush}"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Border.Style>
-                                <TextBlock Text="{Binding Sensor3Info}" TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                        </GroupBox>
-                        <GroupBox x:Name="IOCam4" Header="OUT SIDE" TextBlock.FontSize="8">
-                            <Border>
-                                <Border.Style>
-                                    <Style TargetType="{x:Type Border}">
-                                        <Setter Property="Background" Value="Gainsboro"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Sensor4On}" Value="True">
-                                                <Setter Property="Background" Value="{StaticResource OKBrush}"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Border.Style>
-                                <TextBlock Text="{Binding Sensor4Info}" TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                        </GroupBox>
-                    </UniformGrid>
-                </GroupBox>
+                <Border Background="Transparent" MouseLeftButtonDown="SensorIO_MouseDown"
+                        ToolTip="센서 입력 (15Pin D-Sub #3(+) / #12(-)) — 더블클릭 시 카운트 초기화">
+                    <DockPanel LastChildFill="False" Margin="5,0">
+                        <TextBlock DockPanel.Dock="Left" Text="{Binding SensorTitle}" FontSize="10"
+                                   Foreground="Gray" VerticalAlignment="Center"/>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <StackPanel x:Name="IOCam1" Orientation="Horizontal" Margin="6,0,0,0" ToolTip="{Binding Sensor1Detail}">
+                                <Ellipse Width="9" Height="9" Stroke="Gray" StrokeThickness="0.5" VerticalAlignment="Center">
+                                    <Ellipse.Style>
+                                        <Style TargetType="{x:Type Ellipse}">
+                                            <Setter Property="Fill" Value="Gainsboro"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Sensor1On}" Value="True">
+                                                    <Setter Property="Fill" Value="{StaticResource OKBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
+                                <TextBlock Text="{Binding Sensor1Info}" FontSize="10" Margin="3,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel x:Name="IOCam2" Orientation="Horizontal" Margin="8,0,0,0" ToolTip="{Binding Sensor2Detail}">
+                                <Ellipse Width="9" Height="9" Stroke="Gray" StrokeThickness="0.5" VerticalAlignment="Center">
+                                    <Ellipse.Style>
+                                        <Style TargetType="{x:Type Ellipse}">
+                                            <Setter Property="Fill" Value="Gainsboro"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Sensor2On}" Value="True">
+                                                    <Setter Property="Fill" Value="{StaticResource OKBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
+                                <TextBlock Text="{Binding Sensor2Info}" FontSize="10" Margin="3,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel x:Name="IOCam3" Orientation="Horizontal" Margin="8,0,0,0" ToolTip="{Binding Sensor3Detail}">
+                                <Ellipse Width="9" Height="9" Stroke="Gray" StrokeThickness="0.5" VerticalAlignment="Center">
+                                    <Ellipse.Style>
+                                        <Style TargetType="{x:Type Ellipse}">
+                                            <Setter Property="Fill" Value="Gainsboro"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Sensor3On}" Value="True">
+                                                    <Setter Property="Fill" Value="{StaticResource OKBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
+                                <TextBlock Text="{Binding Sensor3Info}" FontSize="10" Margin="3,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel x:Name="IOCam4" Orientation="Horizontal" Margin="8,0,0,0" ToolTip="{Binding Sensor4Detail}">
+                                <Ellipse Width="9" Height="9" Stroke="Gray" StrokeThickness="0.5" VerticalAlignment="Center">
+                                    <Ellipse.Style>
+                                        <Style TargetType="{x:Type Ellipse}">
+                                            <Setter Property="Fill" Value="Gainsboro"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Sensor4On}" Value="True">
+                                                    <Setter Property="Fill" Value="{StaticResource OKBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
+                                <TextBlock Text="{Binding Sensor4Info}" FontSize="10" Margin="3,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
             </Grid>
             <Grid Grid.Row="5">
                 <GroupBox Header="Log">
