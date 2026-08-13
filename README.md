@@ -39,6 +39,7 @@ KeocGrabber/
 ├─ 400_SubPage/         WPF 페이지(운전/설정/권한/통신상태/시스템정보)
 └─ 600_Device/
     ├─ Camera/          GrabberManager(추상화), EuresysGrabber, MatroxGrabber, VieworksCamera
+    ├─ IO/              SensorIOManager (센서 입력 라인 모니터링)
     └─ Light/           LightManager, DawooLight, VitLight
 ```
 
@@ -86,6 +87,7 @@ TCP 프레임은 고정 헤더 + 가변 길이 페이로드로 구성됩니다.
   - **Production 모드**: 보드 CIC(RC 제어) + 카메라 LineStart 트리거(CXP) 조합으로 라인스캔 트리거링. 센서 1펄스(LIN1) → 보드가 내부 클럭으로 N라인 시퀀스를 생성(`SequenceLength`=GrabHeight)해 1024라인 청크 단위로 수신, `ImageManager`가 누적
   - 라인주기 목표값(`TARGET_LINE_PERIOD_US` = 90.5us, 현장 200mm/s 스캔 조건 기준)에 맞춰 노광시간을 자동 캡핑
   - Mono10/12/16 포맷은 CV_16UC1로 받아 8bit로 비트시프트 변환
+  - 센서 입력 라인(`IIN11`)의 현재 레벨을 읽는 `fn_TryGetSensorInput()` 제공 (§11 참고)
 - **MatroxGrabber** (`600_Device/Camera/MatroxGrabber.cs`)
   - MIL SDK 기반, 카메라별 DCF 파일(H/W 트리거 및 Grab Start IO 설정)로 초기화
   - `MdigProcess` 비동기 그랩 + Hook 콜백으로 프레임 수신
@@ -102,7 +104,7 @@ TCP 프레임은 고정 헤더 + 가변 길이 페이로드로 구성됩니다.
 
 ## 8. 레시피 / 설정 파일
 
-- **시스템 설정**: 실행 파일 위치의 `ImageGrabber.xml` (없으면 최초 실행 시 기본값으로 생성). 카메라 대수, Master IP/Port(최대 2계열), 그래버 벤더(`UseEuresys`)/Matrox 보드 모델(`BoardType`), GrabHeight, GiGA 보드 Node/Link/Mailbox 번호, 시리얼 포트 매핑, 이미지/로그 경로 등을 포함. 구버전 XML의 `<BoardType>Coaxlink Quad G3</BoardType>` 같은 자유 텍스트 값은 `MILBOARD_TYPE` enum 이름이 아니므로 로드 시 해당 필드만 무시되고 기본값으로 대체됩니다(다른 설정에는 영향 없음). Matrox 보드를 쓰는 현장은 업그레이드 시 `BoardType` 값을 enum 이름(예: `EN_BT_RADIENTCXP`)으로 갱신해야 합니다.
+- **시스템 설정**: 실행 파일 위치의 `ImageGrabber.xml` (없으면 최초 실행 시 기본값으로 생성). 카메라 대수, Master IP/Port(최대 2계열), 그래버 벤더(`UseEuresys`)/Matrox 보드 모델(`BoardType`), GrabHeight, GiGA 보드 Node/Link/Mailbox 번호, 시리얼 포트 매핑, 이미지/로그 경로, 센서 I/O 설정(§11) 등을 포함. 구버전 XML의 `<BoardType>Coaxlink Quad G3</BoardType>` 같은 자유 텍스트 값은 `MILBOARD_TYPE` enum 이름이 아니므로 로드 시 해당 필드만 무시되고 기본값으로 대체됩니다(다른 설정에는 영향 없음). Matrox 보드를 쓰는 현장은 업그레이드 시 `BoardType` 값을 enum 이름(예: `EN_BT_RADIENTCXP`)으로 갱신해야 합니다.
 - **레시피**: `C:/KEOC/Recipe/<RecipeName>.xml`. 카메라별 노광/게인(최대 4채널), 상/하부 조명값, Crop ROI 테이블(2계열 Master 분할 촬상 시 이미지당 2개 ROI) 포함.
 - XML 직렬화는 리플렉션 기반 커스텀 매니저(`010_Common/XmlManager.cs`, `FalconWpf` 네임스페이스)를 사용하며 `DataTable` 프로퍼티(ROI 등)도 자동 저장/복원합니다.
 
@@ -117,7 +119,56 @@ TCP 프레임은 고정 헤더 + 가변 길이 페이로드로 구성됩니다.
 
 `EN_AUTHORITY`: `EN_OPERATOR`(0) < `EN_MAINTENANCE`(1) < `EN_ENGINEER`(2). 비밀번호는 `100_Define/Global.cs`의 `Define` 클래스에 정의(`PASSWORD_EN = "keoc"`, OP/MA는 비워짐). Operator 권한으로는 설정 화면 진입 및 프로그램 종료가 제한됩니다(`MainWindow.Window_Closing`에서 강제 차단).
 
-## 11. 빌드 방법
+## 11. 센서 입력 I/O 모니터링
+
+물체 감지 센서가 프레임그래버까지 실제로 신호를 보내고 있는지 화면에서 바로 확인할 수 있습니다.
+
+### 배선
+
+| 항목 | 값 |
+|---|---|
+| 커넥터 | Euresys Coaxlink 15pin D-Sub |
+| Pin 3 | `IIN11+` (Isolated input #11 – Positive pole) |
+| Pin 12 | `IIN11-` (Isolated input #11 – Negative pole) |
+
+이 라인은 `EuresysGrabber.fn_SetExternalTrigger()`에서 `LineInputTool` 설정으로 논리라인 **LIN1**에 매핑되며, LIN1의 상승 에지 1펄스가 `StartOfSequenceTriggerSource`로 들어가 **`SequenceLength`(= `GrabHeight`) 라인만큼 스캔**을 시작시킵니다. 즉 화면의 램프가 켜지는 신호와 스캔을 시작시키는 신호는 **동일한 물리 라인**입니다.
+
+### 동작
+
+- `SensorIOManager`(`600_Device/IO/SensorIOManager.cs`)가 백그라운드 스레드로 라인 레벨을 폴링합니다. 읽기는 Euresys Interface 모듈의 `LineSelector`(= `IIN11`) → `LineStatus` 조합이며, 트리거를 소비하지 않으므로 grab 중에도 그대로 사용할 수 있습니다.
+- 상승 에지를 누적 카운트하고 마지막 검출 시각·펄스 폭을 보관합니다. 신호가 짧아도 눈에 보이도록 검출 후 `SensorLampHold`(ms) 동안 램프를 켜 둡니다.
+- 한 보드(Interface)에 여러 카메라(Device)가 붙어 있으면 I/O 커넥터는 하나이므로 해당 카메라들은 하나의 채널을 공유하고, 보드 접근도 보드 수만큼만 발생합니다.
+- `SensorLogEnable`이 켜져 있으면 검출 시 `[SENSOR] IIN11 신호 검출 (BOARD1, #12)` 형태로 로그를 남깁니다.
+
+### 화면
+
+Main 화면 우측 **Sensor I/O** 패널에 카메라별로 램프(신호 검출 시 초록)와 `#누적횟수 / 마지막 검출시각 / 펄스폭`이 표시됩니다. 패널을 더블클릭하면(Operator 권한 제외) 카운트를 초기화합니다.
+
+표시 상태 해석:
+
+| 표시 | 의미 |
+|---|---|
+| `Wait` (회색) | 모니터링 중이며 아직 신호 없음 → 센서/배선 또는 대상물 통과 여부 확인 |
+| `#n 시각` (초록) | 신호가 보드까지 들어옴. 그래도 스캔이 안 되면 보드 이후(트리거/카메라 설정) 문제 |
+| `No Read` | 라인 상태를 읽지 못함(그래버 미연결 또는 `LineStatus` 미지원) |
+| `-` | 모니터링 비활성(`UseSensorIO=false` 또는 Matrox 사용 중) |
+
+### 설정 (`ImageGrabber.xml`)
+
+| 키 | 기본값 | 설명 |
+|---|---|---|
+| `UseSensorIO` | `true` | 센서 I/O 모니터링 사용 여부 |
+| `SensorInputLine` | `IIN11` | 센서가 물린 Interface 라인. 트리거 소스(LIN1)에도 함께 적용됨 |
+| `SensorPollInterval` | `10` | 폴링 주기(ms). 짧을수록 짧은 펄스를 잘 잡음 |
+| `SensorLampHold` | `1000` | 검출 후 램프 유지 시간(ms). UI 갱신 주기(500ms)보다 커야 함 |
+| `SensorLogEnable` | `true` | 검출 시 로그 기록 여부 |
+
+### 제약
+
+- 폴링 방식이라 폴링 주기보다 짧은 펄스는 놓칠 수 있습니다. 또한 grab 스레드가 버퍼를 pop 하는 동안에는 보드 접근이 잠시 막혀(`EGrabber is busy in another thread`) 폴링이 몇 회 건너뛸 수 있으며, 이때는 마지막 값을 유지합니다. **카운트는 신호 유입 확인용 참고값이며 실제 트리거 횟수와 정확히 일치하지 않을 수 있습니다.**
+- **Matrox는 미지원**입니다. `GrabberManager.fn_TryGetSensorInput()`의 `TODO(Matrox)` 위치에 `fn_GetSpecificIO(idx, MIL.M_AUX_IO*)`를 연결하면 동일한 UI를 그대로 사용할 수 있으며, 사용 핀은 실제 배선 확인 후 결정해야 합니다. Matrox 선택 시에는 모니터링이 자동으로 비활성화됩니다.
+
+## 12. 빌드 방법
 
 1. Visual Studio 2019/2022 + .NET Framework 4.8 Developer Pack
 2. NuGet 패키지 복원 (`OpenCvSharp4`, `OpenCvSharp4.runtime.win`, `OpenCvSharp4.WpfExtensions` 등, `packages.config` 참조)
@@ -127,8 +178,9 @@ TCP 프레임은 고정 헤더 + 가변 길이 페이로드로 구성됩니다.
    - **Interface APX-7402 SDK** (`apx7400Lib`, GiGA 광링크 보드)
 4. 플랫폼은 `x64`만 지원(AnyCPU 빌드 불가), 출력 경로는 `bin\x64\Debug` / `bin\x64\Release`
 
-## 12. 알려진 제약 / TODO
+## 13. 알려진 제약 / TODO
 
+- 센서 입력 I/O 모니터링은 Euresys 전용이며 Matrox 지원은 미구현(§11 참고)
 - 드라이브 용량 기반 이미지 자동 삭제 기능 비활성화 상태(§9 참고)
 - Setup 화면에 `UseEuresys`/`BoardType` 편집 UI가 없어 현재는 `ImageGrabber.xml` 파일을 직접 수정해야 함
 - 2계열 Master(`JavasCount == 2`) 운용 시 ROI 인덱싱은 `이미지idx * 2 (+1)` 규칙에 의존하므로 레시피의 `CropROI` 행 순서가 중요

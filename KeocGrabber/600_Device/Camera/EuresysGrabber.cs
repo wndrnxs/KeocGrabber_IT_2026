@@ -42,6 +42,18 @@ namespace KeocGrabber
         // 라인주기 = X픽셀분해능 / 속도 라야 정사각 비율. 늘어짐 보정 필요시 = 현주기 × (정사각물체 결과 H/W).
         const double TARGET_LINE_PERIOD_US = 90.5;
 
+        // ── 센서 입력 라인 (15pin D-Sub #3 = IIN11+, #12 = IIN11-) ──────────────
+        // 이 라인은 fn_SetExternalTrigger()에서 LIN1(스캔 시작 트리거)으로 매핑된다.
+        // 여기서는 같은 물리 라인의 현재 레벨을 읽어 UI 램프/카운터로 보여준다(배선·센서 점검용).
+        string m_strSensorLine = "IIN11";
+        volatile bool m_bSensorReadable = true;   // LineStatus 미지원이면 false로 내려 폴링 중단
+        bool m_bLastSensorLevel = false;
+        int m_nSensorFailCount = 0;
+        readonly object m_lockSensor = new object();
+        const int SENSOR_FAIL_LIMIT = 10;         // 연속 실패 한계(초과 시 모니터링 중단)
+
+        public string SensorLine { get { return m_strSensorLine; } }
+
         public int Width { get { return m_nWidth; } }
         public int Height { get { return m_nHeight; } }
         public int Channel { get { return m_nChannel; } }
@@ -55,6 +67,11 @@ namespace KeocGrabber
             {
                 m_nInterfaceIndex = info.InterfaceIndex;
                 m_nDeviceIndex    = info.DeviceIndex;
+
+                if (!string.IsNullOrWhiteSpace(G.SYSTEM.SensorInputLine))
+                    m_strSensorLine = G.SYSTEM.SensorInputLine.Trim();
+                m_bSensorReadable  = true;
+                m_nSensorFailCount = 0;
 
                 _egrabber = new EGrabber(info, DEVICE_ACCESS_FLAGS.DEVICE_ACCESS_CONTROL);
 
@@ -84,8 +101,14 @@ namespace KeocGrabber
         {
             if (m_bIsGrabbing) fn_GrabStop();
 
-            try { _egrabber?.Dispose(); } catch { }
-            _egrabber = null;
+            // 센서 폴링 스레드가 읽는 중에 Dispose되지 않도록 같은 락으로 보호한다.
+            lock (m_lockSensor)
+            {
+                m_bSensorReadable = false;
+
+                try { _egrabber?.Dispose(); } catch { }
+                _egrabber = null;
+            }
 
             m_bIsInit = false;
             delLog?.Invoke($"Euresys Final. IF:{m_nInterfaceIndex}");
@@ -307,10 +330,12 @@ namespace KeocGrabber
         private void fn_SetExternalTrigger()
         {
             // ── 1) Interface: IIN11(Pin3+/Pin12-) 물리핀 → LIN1 논리라인 매핑 ──
+            //   라인 이름은 SystemParam.SensorInputLine(기본 "IIN11")과 동일하게 쓴다.
+            //   → UI의 센서 I/O 램프가 실제 트리거 소스와 항상 같은 라인을 본다.
             try
             {
                 _egrabber.Interface.Set<string>("LineInputToolSelector", "LIN1");
-                _egrabber.Interface.Set<string>("LineInputToolSource", "IIN11");
+                _egrabber.Interface.Set<string>("LineInputToolSource", m_strSensorLine);
                 _egrabber.Interface.Set<string>("LineInputToolActivation", "RisingEdge");
             }
             catch (Exception ex) { G.WriteLog($"Euresys Interface LineInput set fail: {ex.Message}", true); }
@@ -390,6 +415,62 @@ namespace KeocGrabber
                 catch (Exception ex) { G.WriteLog($"Euresys SequenceLength set fail: {ex.Message}", true); }
             }
             catch (Exception ex) { G.WriteLog($"Euresys Device sequence set fail: {ex.Message}", true); }
+        }
+
+        // --- 센서 입력 I/O (Interface 레이어) ---
+
+        /// <summary>
+        /// 센서 입력 라인(기본 IIN11 = 15pin D-Sub #3/#12)의 현재 레벨을 읽는다.
+        /// Interface 모듈의 LineSelector로 라인을 고른 뒤 LineStatus를 읽는 방식이라
+        /// grab 중에도(트리거를 가로채지 않고) 신호 유무만 확인할 수 있다.
+        /// </summary>
+        /// <param name="bLevel">읽은 레벨. 실패 시 마지막으로 성공한 값.</param>
+        /// <returns>읽기 성공 여부</returns>
+        public bool fn_TryGetSensorInput(out bool bLevel)
+        {
+            lock (m_lockSensor)
+            {
+                bLevel = m_bLastSensorLevel;
+                if (!m_bIsInit || !m_bSensorReadable || _egrabber == null) return false;
+
+                try
+                {
+                    _egrabber.Interface.Set<string>("LineSelector", m_strSensorLine);
+
+                    bool bRead;
+                    try { bRead = _egrabber.Interface.Get<bool>("LineStatus"); }
+                    catch { bRead = fn_ParseBool(_egrabber.Interface.Get<string>("LineStatus")); }
+
+                    m_bLastSensorLevel = bRead;
+                    m_nSensorFailCount = 0;
+                    bLevel = bRead;
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    // grab 스레드가 pop 중이면 보드 접근이 잠깐 막힌다("EGrabber is busy in another thread").
+                    // 일시적인 상황이므로 마지막 값을 유지하고 다음 폴링에서 재시도한다.
+                    if (ex.Message.IndexOf("busy", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
+                    // 그 외 오류(미지원 feature 등)가 연속으로 나면 로그 폭주를 막기 위해 모니터링을 중단한다.
+                    if (++m_nSensorFailCount >= SENSOR_FAIL_LIMIT)
+                    {
+                        m_bSensorReadable = false;
+                        G.WriteLog($"Euresys 센서 I/O 읽기 실패 → 모니터링 중단 (IF:{m_nInterfaceIndex} Line:{m_strSensorLine}): {ex.Message}", true);
+                    }
+                    return false;
+                }
+            }
+        }
+
+        private static bool fn_ParseBool(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return false;
+            string v = value.Trim();
+            return v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase)
+                            || v.Equals("on", StringComparison.OrdinalIgnoreCase)
+                            || v.Equals("high", StringComparison.OrdinalIgnoreCase)
+                            || v.Equals("active", StringComparison.OrdinalIgnoreCase);
         }
 
         private void fn_ExecuteRemote(string command)

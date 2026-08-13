@@ -406,5 +406,58 @@ namespace KeocGrabber
                 return m_listMatrox[boardIdx].fn_GetSpecificIO(ioAttribute);
             return false;
         }
+
+        // ─── 센서 입력 I/O ───────────────────────────────────────────────────────
+        // Euresys : Interface 모듈의 IIN11(15pin D-Sub #3=+, #12=-) 레벨을 직접 읽는다.
+        //           이 라인이 곧 스캔 시작 트리거(LIN1) 소스이므로, 램프가 켜졌는데
+        //           스캔이 안 되면 보드 이후(트리거 설정/카메라) 문제로 좁힐 수 있다.
+        // Matrox  : 현재 미지원. 검증 장비 확보 후 아래 TODO 위치에 AUX IO를 연결한다.
+
+        // 센서 I/O 모니터링 지원 여부 (현재 Euresys 전용)
+        public bool IsSensorIoSupported { get { return m_bIsEuresys; } }
+
+        /// <summary>
+        /// 센서 입력 라인의 현재 레벨을 읽는다.
+        /// </summary>
+        /// <param name="idx">카메라(그래버) 인덱스</param>
+        /// <param name="bLevel">읽은 레벨. 실패 시 false 또는 마지막 성공값.</param>
+        /// <returns>읽기 성공 여부</returns>
+        public bool fn_TryGetSensorInput(int idx, out bool bLevel)
+        {
+            bLevel = false;
+
+            if (m_bIsEuresys)
+            {
+                if (idx >= 0 && idx < m_listEuresys.Count)
+                    return m_listEuresys[idx].fn_TryGetSensorInput(out bLevel);
+                return false;
+            }
+
+            // TODO(Matrox) : 테스트 환경 확보 후 아래처럼 AUX IO를 센서 입력으로 매핑한다.
+            //                실제 사용 핀은 배선 확인 후 결정(M_AUX_IO0 ~ M_AUX_IO7).
+            //   bLevel = fn_GetSpecificIO(idx, MIL.M_AUX_IO6);
+            //   return true;
+            return false;
+        }
+
+        /// <summary>센서 라인 이름 (UI 표기용)</summary>
+        public string fn_GetSensorLine(int idx)
+        {
+            if (m_bIsEuresys && idx >= 0 && idx < m_listEuresys.Count)
+                return m_listEuresys[idx].SensorLine;
+            return G.SYSTEM.SensorInputLine;
+        }
+
+        /// <summary>
+        /// 센서 라인이 물려 있는 물리 보드(Interface) 인덱스.
+        /// 한 보드에 여러 카메라(Device)가 붙으면 I/O 커넥터는 하나이므로,
+        /// 이 값이 같은 카메라들은 동일한 센서 신호를 공유한다.
+        /// </summary>
+        public int fn_GetSensorInterfaceIndex(int idx)
+        {
+            if (m_bIsEuresys)
+                return idx >= 0 && idx < m_listEuresys.Count ? m_listEuresys[idx].BoardIndex : -1;
+            return idx >= 0 && idx < m_listMatrox.Count ? idx : -1;
+        }
     }
 }

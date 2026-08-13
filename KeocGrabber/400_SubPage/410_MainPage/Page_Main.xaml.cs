@@ -48,6 +48,42 @@ namespace KeocGrabber
         double dTestBtnHeight = 0;
         public double TestBtnHeight { get { return dTestBtnHeight; } set { dTestBtnHeight = value; OnPropertyChanged(); } }
 
+        // ── Sensor I/O (Euresys 15pin D-Sub #3 = IIN11+, #12 = IIN11-) ──────────
+        // 센서 신호(스캔 시작 트리거)가 보드까지 들어오는지 확인하는 표시.
+        string strSensorTitle = "Sensor I/O";
+        public string SensorTitle { get { return strSensorTitle; } set { if (strSensorTitle == value) return; strSensorTitle = value; OnPropertyChanged(); } }
+
+        bool bSensor1On = false;
+        bool bSensor2On = false;
+        bool bSensor3On = false;
+        bool bSensor4On = false;
+
+        public bool Sensor1On { get { return bSensor1On; } set { if (bSensor1On == value) return; bSensor1On = value; OnPropertyChanged(); } }
+        public bool Sensor2On { get { return bSensor2On; } set { if (bSensor2On == value) return; bSensor2On = value; OnPropertyChanged(); } }
+        public bool Sensor3On { get { return bSensor3On; } set { if (bSensor3On == value) return; bSensor3On = value; OnPropertyChanged(); } }
+        public bool Sensor4On { get { return bSensor4On; } set { if (bSensor4On == value) return; bSensor4On = value; OnPropertyChanged(); } }
+
+        string strSensor1Info = "-";
+        string strSensor2Info = "-";
+        string strSensor3Info = "-";
+        string strSensor4Info = "-";
+
+        public string Sensor1Info { get { return strSensor1Info; } set { if (strSensor1Info == value) return; strSensor1Info = value; OnPropertyChanged(); } }
+        public string Sensor2Info { get { return strSensor2Info; } set { if (strSensor2Info == value) return; strSensor2Info = value; OnPropertyChanged(); } }
+        public string Sensor3Info { get { return strSensor3Info; } set { if (strSensor3Info == value) return; strSensor3Info = value; OnPropertyChanged(); } }
+        public string Sensor4Info { get { return strSensor4Info; } set { if (strSensor4Info == value) return; strSensor4Info = value; OnPropertyChanged(); } }
+
+        public void SetSensor(int idx, bool bOn, string strInfo)
+        {
+            switch (idx)
+            {
+                case 0: Sensor1On = bOn; Sensor1Info = strInfo; break;
+                case 1: Sensor2On = bOn; Sensor2Info = strInfo; break;
+                case 2: Sensor3On = bOn; Sensor3Info = strInfo; break;
+                case 3: Sensor4On = bOn; Sensor4Info = strInfo; break;
+            }
+        }
+
         bool bIsGrabStop = true;
         public bool IsGrabStop { get { return bIsGrabStop; } set { bIsGrabStop = value; OnPropertyChanged(); } }
     }
@@ -86,19 +122,35 @@ namespace KeocGrabber
             }));
         }
 
-        public void Update_IOStatus(bool aux6, bool aux7)
+        /// <summary>
+        /// 센서 I/O 표시 갱신. (MainWindow의 500ms 타이머에서 호출)
+        /// 신호는 짧게 지나가므로 SensorIOManager가 SensorLampHold(ms) 동안 램프를 잡아 준다.
+        /// </summary>
+        public void Update_IOStatus()
         {
-            // AUX 6 상태 표시
-            //if (aux6)
-            //    IO_CAM1.Fill = Brushes.LimeGreen;
-            //else
-            //    IO_CAM1.Fill = Brushes.Gray;
+            string strLine = G.GRABBER.fn_GetSensorLine(0);
+            datacontext.SensorTitle = G.SENSORIO.IsRunning
+                ? $"Sensor I/O [{strLine} : 15Pin D-Sub #3(+) / #12(-)]"
+                : $"Sensor I/O [{strLine} : 사용 안 함]";
 
-            // AUX 7 상태 표시
-            //if (aux7)
-            //    IO_CAM2.Fill = Brushes.LimeGreen;
-            //else
-            //    IO_CAM2.Fill = Brushes.Gray;
+            for (int i = 0; i < Define.CAM_COUNT; i++)
+            {
+                if (!G.SENSORIO.IsRunning)
+                {
+                    datacontext.SetSensor(i, false, "-");
+                    continue;
+                }
+                datacontext.SetSensor(i, G.SENSORIO.fn_IsSignalOn(i), G.SENSORIO.fn_GetInfoText(i));
+            }
+        }
+
+        private void SensorIO_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (G.USERLEVEL != EN_AUTHORITY.EN_OPERATOR)
+            {
+                G.SENSORIO.fn_ResetCount();
+                Update_IOStatus();
+            }
         }
 
         private void bn_testgrab_click(object sender, RoutedEventArgs e)

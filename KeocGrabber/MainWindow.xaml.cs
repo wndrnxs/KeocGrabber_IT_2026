@@ -143,6 +143,12 @@ namespace KeocGrabber
             mc_pageMain.Cam3Viewer.Visibility = count >= 3 ? Visibility.Visible : Visibility.Collapsed;
             mc_pageMain.Cam4Viewer.Visibility = count >= 4 ? Visibility.Visible : Visibility.Collapsed;
 
+            // 센서 I/O 표시도 카메라 수에 맞춘다.
+            mc_pageMain.IOCam1.Visibility = Visibility.Visible;
+            mc_pageMain.IOCam2.Visibility = count >= 2 ? Visibility.Visible : Visibility.Collapsed;
+            mc_pageMain.IOCam3.Visibility = count >= 3 ? Visibility.Visible : Visibility.Collapsed;
+            mc_pageMain.IOCam4.Visibility = count >= 4 ? Visibility.Visible : Visibility.Collapsed;
+
             switch (count)
             {
                 case 1:
@@ -298,10 +304,9 @@ namespace KeocGrabber
                     mc_pageMain.datacontext.Cam1Grab = G.IMAGEMANAGER.IsImageCompalte[i] ? "Compl" : "Wait";
                 }
             }
-        }
-        public void fn_UpdateSensorUI(bool bAux6_On, bool bAux7_On)
-        {
-            mc_pageMain.Update_IOStatus(bAux6_On, bAux7_On);
+
+            // 센서 입력(IIN11 = 15pin D-Sub #3/#12) 표시 갱신.
+            mc_pageMain.Update_IOStatus();
         }
 
         public void fn_SetupUpdateAutority()

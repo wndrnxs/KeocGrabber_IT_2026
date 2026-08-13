@@ -40,6 +40,7 @@ namespace KeocGrabber
         static public SystemParam SYSTEM = new SystemParam();
 
         static public GrabberManager GRABBER = new GrabberManager();
+        static public SensorIOManager SENSORIO = new SensorIOManager();
         static public LightManager LIGHT = new LightManager();
         static public VieworksCamera[] CAMERA = new VieworksCamera[G.SYSTEM.CamCount];
 
@@ -185,6 +186,9 @@ namespace KeocGrabber
                 GRABBER.fn_Init(G.SYSTEM.CamCount, emptyDcf);
             }
 
+            // 센서 입력(IIN11 = 15pin D-Sub #3/#12) 모니터링 시작.
+            SENSORIO.fn_Init(G.SYSTEM.CamCount);
+
             IMAGEMANAGER.fn_Init(G.SYSTEM.CamCount, GRABBER.ImageWidth, G.SYSTEM.GrabHeight, 1);
             //IMAGEMANAGER.fn_Init(G.SYSTEM.CamCount, 16384, G.SYSTEM.GrabHeight, 1);
 
@@ -243,6 +247,9 @@ namespace KeocGrabber
             COMM.fn_Final();
             COMM2.fn_Final();
             
+            // 센서 I/O 폴링은 그래버 해제 전에 멈춘다(해제된 EGrabber 접근 방지).
+            SENSORIO.fn_Final();
+
             GIGABOARD.fn_Final();
             IMAGEMANAGER.fn_Final();
             //#if !DEBUG
