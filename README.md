@@ -102,6 +102,25 @@ TCP 프레임은 고정 헤더 + 가변 길이 페이로드로 구성됩니다.
 
 카메라 4대 구성에서는 상부 촬상 시 하부 조명 간섭 방지를 위한 별도 제어(`fn_Vit_ON`)가 있습니다.
 
+### 카메라 대수와 조명 구성
+
+`SystemParam.CamCount`는 **1~4** 범위로 제한되며(범위를 벗어난 XML 값은 잘림), 조명 구성은 카메라 대수에서 파생됩니다.
+
+| 카메라 | 상부(DAWOO) | 하부(VIT) | 조명 대수(`LightManager.LightCount`) | 조명 인덱스 매핑 |
+|---|---|---|---|---|
+| 1대 | 1 | 없음 | 1 | 0 = 상부1 |
+| 2대 | 2 | 없음 | **2** | 0~1 = 상부 |
+| 3대 | 3 | 1대(4채널) | 4 | 0~2 상부, 3~6 하부 |
+| 4대 | 4 | 1대(4채널) | **5** | 0~3 상부, 4~7 하부 |
+
+2대·4대 값(굵게)은 기존 현장 구성과 동일하며, 1대·3대는 같은 규칙을 일반화한 값입니다. 연결 상태 판정(`MainWindow.fn_UpdateState`, `Page_Communication`, `ProtocallManager`의 조명 에러 보고)은 모두 `LightManager.LightCount` 하나를 기준으로 씁니다.
+
+카메라 대수에 따라 자동으로 조정되는 항목:
+
+- **Main 화면** — 카메라 뷰어, GrabState, 센서 I/O 표시 개수
+- **Setup 화면** — 카메라 선택 콤보, 상부 조명 선택 콤보, CAM1~4 설정 패널 활성화, 하부 조명 패널 활성화
+- **내부** — 카메라 시리얼 포트 연결(Matrox), 레시피의 노광/게인/광량 적용 범위, 마지막 카메라 완료 시 조명 OFF 시점
+
 ## 8. 레시피 / 설정 파일
 
 - **시스템 설정**: 실행 파일 위치의 `ImageGrabber.xml` (없으면 최초 실행 시 기본값으로 생성). 카메라 대수, Master IP/Port(최대 2계열), 그래버 벤더(`UseEuresys`)/Matrox 보드 모델(`BoardType`), GrabHeight, GiGA 보드 Node/Link/Mailbox 번호, 시리얼 포트 매핑, 이미지/로그 경로, 센서 I/O 설정(§11) 등을 포함. 구버전 XML의 `<BoardType>Coaxlink Quad G3</BoardType>` 같은 자유 텍스트 값은 `MILBOARD_TYPE` enum 이름이 아니므로 로드 시 해당 필드만 무시되고 기본값으로 대체됩니다(다른 설정에는 영향 없음). Matrox 보드를 쓰는 현장은 업그레이드 시 `BoardType` 값을 enum 이름(예: `EN_BT_RADIENTCXP`)으로 갱신해야 합니다.
@@ -179,6 +198,8 @@ Main 화면 우측 GrabState와 Log 사이에 **한 줄짜리 상태 표시줄**
 ## 13. 알려진 제약 / TODO
 
 - 센서 입력 I/O 모니터링은 Euresys 전용이며 Matrox 지원은 미구현(§11 참고)
+- 카메라 1대·3대 구성은 코드상 지원되나 현장 검증 이력이 없음(§7 참고). 하부 조명 채널 매핑(`CamCount + n`)은 4대 구성 기준을 일반화한 것이라 실제 배선 확인 필요
+- `GrabberManager.IsGrabbing`은 "전부 그랩 중"의 부정(=하나라도 멈춤)을 반환해 이름과 의미가 반대. `ImageManager.ComplateImage`에서 종료 판정에 쓰이므로 수정 시 동작 확인 필요
 - 드라이브 용량 기반 이미지 자동 삭제 기능 비활성화 상태(§9 참고)
 - Setup 화면에 `UseEuresys`/`BoardType` 편집 UI가 없어 현재는 `ImageGrabber.xml` 파일을 직접 수정해야 함
 - 2계열 Master(`JavasCount == 2`) 운용 시 ROI 인덱싱은 `이미지idx * 2 (+1)` 규칙에 의존하므로 레시피의 `CropROI` 행 순서가 중요

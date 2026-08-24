@@ -291,8 +291,8 @@ namespace KeocGrabber
                 bRet &= G.GRABBER.fn_IsCameraConnected(i);
             }
 
-            int MaxlightCount = G.SYSTEM.CamCount == 2 ? 2 : 5;
-            for (int i = 0; i < MaxlightCount; i++)
+            // 조명 대수 = 상부(카메라 대수) + 하부(3캠 이상일 때 1). 2캠→2, 4캠→5로 기존과 동일.
+            for (int i = 0; i < G.LIGHT.LightCount; i++)
             {
                 bRet &= G.LIGHT[i];
             }

@@ -86,7 +86,10 @@ namespace KeocGrabber
             }
         }
 
-        int[] m_nBufferCounter = new int[G.SYSTEM.CamCount];
+        // 주의: 이 필드는 G의 정적 초기화(=ImageGrabber.xml 로드 전) 시점에 만들어진다.
+        //       그때 G.SYSTEM.CamCount는 아직 기본값이므로 CamCount로 잡으면 4캠 구성에서
+        //       인덱스를 벗어난다. 지원 최대 대수(Define.CAM_COUNT)로 고정 확보한다.
+        int[] m_nBufferCounter = new int[Define.CAM_COUNT];
 
         // ─── Euresys 초기화 ─────────────────────────────────────────────────────
 
@@ -285,7 +288,7 @@ namespace KeocGrabber
             }
             else
             {
-                m_nBufferCounter[idx]++;
+                if (idx >= 0 && idx < m_nBufferCounter.Length) m_nBufferCounter[idx]++;
                 if (G.IMAGEMANAGER?.IsImageCompalte[idx] == false)
                     G.IMAGEMANAGER?.AttachImage(idx, matImg, milindex);
             }
@@ -308,12 +311,16 @@ namespace KeocGrabber
             return idx >= 0 && idx < G.CAMERA.Length && G.CAMERA[idx] != null && G.CAMERA[idx].IsConnected;
         }
 
+        // 실제로 초기화된 그래버 수. m_nBoardCount가 리스트보다 크면 인덱스를 벗어나므로
+        // 항상 이 값으로 순회한다. (요청 대수 > 발견 대수인 구성 대비)
+        private int GrabberCount { get { return m_bIsEuresys ? m_listEuresys.Count : m_listMatrox.Count; } }
+
         public void fn_GrabStart()
         {
             m_bGrabSetup = false;
-            for (int i = 0; i < m_nBoardCount; i++)
+            for (int i = 0; i < GrabberCount; i++)
             {
-                m_nBufferCounter[i] = 0;
+                if (i < m_nBufferCounter.Length) m_nBufferCounter[i] = 0;
                 if (m_bIsEuresys) m_listEuresys[i].fn_GrabStart();
                 else m_listMatrox[i].fn_GrabStart();
             }
@@ -321,7 +328,7 @@ namespace KeocGrabber
 
         public void fn_GrabStop()
         {
-            for (int i = 0; i < m_nBoardCount; i++)
+            for (int i = 0; i < GrabberCount; i++)
             {
                 if (m_bIsEuresys) m_listEuresys[i].fn_GrabStop();
                 else m_listMatrox[i].fn_GrabStop();

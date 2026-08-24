@@ -403,7 +403,8 @@ namespace KeocGrabber
                     bKnownError = true;
                 }
 
-                if (Enumerable.Range(0, G.SYSTEM.CamCount).Any(i => !G.LIGHT[i]))
+                // 조명 에러 판정도 Ready 판정(MainWindow.fn_UpdateState)과 같은 대수 기준을 쓴다.
+                if (Enumerable.Range(0, G.LIGHT.LightCount).Any(i => !G.LIGHT[i]))
                 {
                     this.SendError(COMM_STATUS.EQP_ERRORdotLIGHT);
                     bKnownError = true;

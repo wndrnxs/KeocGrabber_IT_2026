@@ -163,7 +163,8 @@ namespace KeocGrabber
                 // Grab 완료.
                 if (m_nGrabHeight <= grabEndY)
                 {
-                    if ((G.SYSTEM.CamCount == 2 && idx == 1) || (G.SYSTEM.CamCount == 4 && idx == 3))
+                    // 마지막 카메라가 끝나면 조명 OFF. (2캠 idx==1, 4캠 idx==3 — 기존 동작과 동일)
+                    if (idx == G.SYSTEM.CamCount - 1)
                     {
                         G.LIGHT.fn_LightOffAll();
                         G.bChk_Light_On = false;

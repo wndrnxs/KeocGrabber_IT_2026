@@ -106,7 +106,39 @@ namespace KeocGrabber
         public string LogExt { get { return logExt; } set { logExt = value; } }
         public int MaintenanceDays { get { return maintenanceDays; } set { maintenanceDays = value; } }
 
-        public int CamCount { get { return camCount; } set { camCount = value; } }
+        // 카메라 대수. 1 ~ Define.CAM_COUNT(4) 범위로 제한한다.
+        // (레시피/조명/포트 설정이 4채널까지만 존재하므로 범위를 벗어난 XML 값은 잘라낸다)
+        public int CamCount
+        {
+            get { return camCount; }
+            set { camCount = Math.Min(Math.Max(1, value), Define.CAM_COUNT); }
+        }
+
+        /// <summary>카메라 인덱스별 시리얼 포트. (0:Front 1:Rear 2:InSide 3:OutSide, Matrox 경로 전용)</summary>
+        public string fn_GetCamPort(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return camport_Front;
+                case 1: return camport_Rear;
+                case 2: return camport_Inside;
+                case 3: return camport_Outside;
+            }
+            return "";
+        }
+
+        /// <summary>상부(DAWOO) 조명 컨트롤러 인덱스별 시리얼 포트.</summary>
+        public string fn_GetLightPortTop(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return lightPortTop1;
+                case 1: return lightPortTop2;
+                case 2: return lightPortTop3;
+                case 3: return lightPortTop4;
+            }
+            return "";
+        }
         //public int LightCount{ get { return lightCount; } set { lightCount = value; } }
 
         public int GrabDelayCam1 { get { return grabDelayCam1; } set { grabDelayCam1 = value; } }
