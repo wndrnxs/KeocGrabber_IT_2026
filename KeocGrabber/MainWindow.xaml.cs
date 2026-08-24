@@ -269,9 +269,9 @@ namespace KeocGrabber
 
         private void fn_UpdateState()
         {
-#if DEBUG
-            G.READYSTATE = EN_READYSTATE.Ready;
-#else
+//#if DEBUG
+//            G.READYSTATE = EN_READYSTATE.Ready;
+//#else
             bool bRet = true;
             bRet &= G.COMM.IsConnected;
             if (G.SYSTEM.JavasCount == 2)
@@ -293,7 +293,7 @@ namespace KeocGrabber
 
             bRet &= G.GRABBER.IsInited;
             G.READYSTATE = bRet ? EN_READYSTATE.Ready : EN_READYSTATE.Alarm;
-#endif
+//#endif
             mc_pageMain.datacontext.IsGrabStop = G.GRABSTATE != EN_GRABSTATE.Grab;
             mc_pageMain.datacontext.CellID = $"{G.MSGPROC.CellID} [{G.MSGPROC.CellIDCount}]";
 

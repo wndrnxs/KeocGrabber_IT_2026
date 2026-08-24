@@ -77,15 +77,15 @@ namespace KeocGrabber
         {
             try
             {
-#if DEBUG
-                SolidColorBrush ok = (SolidColorBrush)G.MAIN.resource["OKBrush"];
-                datacontext.ConnMaster = ok;
-                datacontext.ConnMaster2 = ok;
-                datacontext.ConnGiGA = ok;
-                datacontext.ConnGrabber = ok;
-                datacontext.ConnCam = ok;
-                datacontext.ConnLight = ok;
-#else
+//#if DEBUG
+//                SolidColorBrush ok = (SolidColorBrush)G.MAIN.resource["OKBrush"];
+//                datacontext.ConnMaster = ok;
+//                datacontext.ConnMaster2 = ok;
+//                datacontext.ConnGiGA = ok;
+//                datacontext.ConnGrabber = ok;
+//                datacontext.ConnCam = ok;
+//                datacontext.ConnLight = ok;
+//#else
                 string strClr = "";
                 strClr = G.COMM.IsConnected ? "OKBrush" : "NGBrush";
                 datacontext.ConnMaster = (SolidColorBrush)G.MAIN.resource[strClr];
@@ -118,7 +118,7 @@ namespace KeocGrabber
 
                 strClr = bRet ? "OKBrush" : "NGBrush";
                 datacontext.ConnLight = (SolidColorBrush)G.MAIN.resource[strClr];
-#endif
+//#endif
             }
             catch {}
         }
