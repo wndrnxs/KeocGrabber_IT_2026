@@ -143,6 +143,12 @@ namespace KeocGrabber
             mc_pageMain.Cam3Viewer.Visibility = count >= 3 ? Visibility.Visible : Visibility.Collapsed;
             mc_pageMain.Cam4Viewer.Visibility = count >= 4 ? Visibility.Visible : Visibility.Collapsed;
 
+            // GrabState도 카메라 수에 맞춘다.
+            mc_pageMain.GrabCam1.Visibility = Visibility.Visible;
+            mc_pageMain.GrabCam2.Visibility = count >= 2 ? Visibility.Visible : Visibility.Collapsed;
+            mc_pageMain.GrabCam3.Visibility = count >= 3 ? Visibility.Visible : Visibility.Collapsed;
+            mc_pageMain.GrabCam4.Visibility = count >= 4 ? Visibility.Visible : Visibility.Collapsed;
+
             // 센서 I/O 표시도 카메라 수에 맞춘다.
             mc_pageMain.IOCam1.Visibility = Visibility.Visible;
             mc_pageMain.IOCam2.Visibility = count >= 2 ? Visibility.Visible : Visibility.Collapsed;
@@ -301,7 +307,7 @@ namespace KeocGrabber
             {
                 for (int i = 0; i < G.SYSTEM.CamCount; i++)
                 {
-                    mc_pageMain.datacontext.Cam1Grab = G.IMAGEMANAGER.IsImageCompalte[i] ? "Compl" : "Wait";
+                    mc_pageMain.datacontext.SetGrabState(i, G.IMAGEMANAGER.IsImageCompalte[i] ? "Compl" : "Wait");
                 }
             }
 

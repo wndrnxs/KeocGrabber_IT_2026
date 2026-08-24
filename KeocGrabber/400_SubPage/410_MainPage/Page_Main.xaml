@@ -95,7 +95,7 @@
             <Grid Grid.Row="3">
                 <GroupBox Header="GrabState">
                     <UniformGrid Rows="1">
-                        <GroupBox Header="FRONT" TextBlock.FontSize="8" MouseDoubleClick="GrabState1_MouseDoubleClick">
+                        <GroupBox x:Name="GrabCam1" Header="FRONT" TextBlock.FontSize="8" MouseDoubleClick="GrabState1_MouseDoubleClick">
                             <Border>
                                 <Border.Style>
                                     <Style TargetType="{x:Type Border}">
@@ -112,7 +112,7 @@
                                 <TextBlock Text="{Binding Cam1Grab}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                         </GroupBox>
-                        <GroupBox Header="REAR" TextBlock.FontSize="8" MouseDoubleClick="GrabState2_MouseDoubleClick">
+                        <GroupBox x:Name="GrabCam2" Header="REAR" TextBlock.FontSize="8" MouseDoubleClick="GrabState2_MouseDoubleClick">
                             <Border>
                                 <Border.Style>
                                     <Style TargetType="{x:Type Border}">
@@ -129,7 +129,7 @@
                                 <TextBlock Text="{Binding Cam2Grab}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                         </GroupBox>
-                        <GroupBox Header="IN SIDE" TextBlock.FontSize="8" MouseDoubleClick="GrabState3_MouseDoubleClick">
+                        <GroupBox x:Name="GrabCam3" Header="IN SIDE" TextBlock.FontSize="8" MouseDoubleClick="GrabState3_MouseDoubleClick">
                             <Border>
                                 <Border.Style>
                                     <Style TargetType="{x:Type Border}">
@@ -146,7 +146,7 @@
                                 <TextBlock Text="{Binding Cam3Grab}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                         </GroupBox>
-                        <GroupBox Header="OUT SIDE" TextBlock.FontSize="8" MouseDoubleClick="GrabState4_MouseDoubleClick">
+                        <GroupBox x:Name="GrabCam4" Header="OUT SIDE" TextBlock.FontSize="8" MouseDoubleClick="GrabState4_MouseDoubleClick">
                             <Border>
                                 <Border.Style>
                                     <Style TargetType="{x:Type Border}">

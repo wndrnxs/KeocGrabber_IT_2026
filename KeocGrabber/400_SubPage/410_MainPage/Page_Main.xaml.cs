@@ -45,6 +45,17 @@ namespace KeocGrabber
         public string Cam3Grab { get { return strCam3State; } set { strCam3State = value; OnPropertyChanged(); } }
         public string Cam4Grab { get { return strCam4State; } set { strCam4State = value; OnPropertyChanged(); } }
 
+        public void SetGrabState(int idx, string strState)
+        {
+            switch (idx)
+            {
+                case 0: Cam1Grab = strState; break;
+                case 1: Cam2Grab = strState; break;
+                case 2: Cam3Grab = strState; break;
+                case 3: Cam4Grab = strState; break;
+            }
+        }
+
         double dTestBtnHeight = 0;
         public double TestBtnHeight { get { return dTestBtnHeight; } set { dTestBtnHeight = value; OnPropertyChanged(); } }
 
