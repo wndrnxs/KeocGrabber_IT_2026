@@ -223,7 +223,7 @@ namespace KeocGrabber
                 COMM2.fn_Init(G.SYSTEM.Master_IP2, G.SYSTEM.Master_Port2, ProtocallManager.ServerType.MASTER2);
             }
 
-            m_SafetyTimer.Interval += G.SYSTEM.GrabTimeout;
+            m_SafetyTimer.Interval = G.SYSTEM.GrabTimeout;
             m_SafetyTimer.Elapsed += OnSafetyTimeOut;
             m_SafetyTimer.AutoReset = false;
 

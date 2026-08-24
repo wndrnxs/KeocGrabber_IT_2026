@@ -197,7 +197,7 @@ namespace KeocGrabber
             }
 
             if (bRisingEdge && G.SYSTEM.SensorLogEnable)
-                G.WriteLog($"[SENSOR] {G.GRABBER.fn_GetSensorLine(ch)} 신호 검출 (BOARD{ch + 1}, #{nCount})");
+                G.WriteLog($"[SENSOR] {G.GRABBER.fn_GetSensorLine(ch)} 신호 검출 (BOARD{ch + 1})");
                 //G.WriteLog($"[SENSOR] {G.GRABBER.fn_GetSensorLine(ch)} 신호 검출 (BOARD{ch + 1}, #{nCount})");
         }
 
