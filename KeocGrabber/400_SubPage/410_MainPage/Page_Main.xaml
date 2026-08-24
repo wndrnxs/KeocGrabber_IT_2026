@@ -171,7 +171,7 @@
                      옆 숫자 = 누적 횟수. 마지막 검출 시각/펄스 폭은 마우스를 올리면 표시된다.
                      Operator 외 권한에서 더블클릭하면 카운트 초기화. -->
                 <Border Background="Transparent" MouseLeftButtonDown="SensorIO_MouseDown"
-                        ToolTip="센서 입력 (15Pin D-Sub #3(+) / #12(-)) — 더블클릭 시 카운트 초기화">
+                        ToolTip="센서 입력 (15Pin D-Sub #3(+) / #12(-))">
                     <DockPanel LastChildFill="False" Margin="5,0">
                         <TextBlock DockPanel.Dock="Left" Text="{Binding SensorTitle}" FontSize="10"
                                    Foreground="Gray" VerticalAlignment="Center"/>

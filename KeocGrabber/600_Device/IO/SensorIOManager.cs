@@ -198,6 +198,7 @@ namespace KeocGrabber
 
             if (bRisingEdge && G.SYSTEM.SensorLogEnable)
                 G.WriteLog($"[SENSOR] {G.GRABBER.fn_GetSensorLine(ch)} 신호 검출 (BOARD{ch + 1}, #{nCount})");
+                //G.WriteLog($"[SENSOR] {G.GRABBER.fn_GetSensorLine(ch)} 신호 검출 (BOARD{ch + 1}, #{nCount})");
         }
 
         // ─── UI 조회용 (모두 카메라 인덱스 기준) ────────────────────────────────

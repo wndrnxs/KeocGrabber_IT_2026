@@ -152,7 +152,7 @@ namespace KeocGrabber
                     continue;
                 }
                 datacontext.SetSensor(i, G.SENSORIO.fn_IsSignalOn(i),
-                                         $"CAM{i + 1} {G.SENSORIO.fn_GetCount(i)}",
+                                         $"CAM{i + 1}", /*{G.SENSORIO.fn_GetCount(i)}*/
                                          G.SENSORIO.fn_GetDetailText(i));
             }
         }
