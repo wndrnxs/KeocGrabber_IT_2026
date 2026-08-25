@@ -17,6 +17,7 @@ namespace KeocGrabber
 
         int m_nInterfaceIndex;
         int m_nDeviceIndex;
+        int m_nCameraIndex;   // GrabberManager 리스트상의 위치(0:Front 1:Rear 2:InSide 3:OutSide) — 카메라별 설정(트리거 지연 등) 조회에 사용
 
         int m_nWidth;
         int m_nHeight;
@@ -63,12 +64,13 @@ namespace KeocGrabber
         public bool IsInit { get { return m_bIsInit; } }
         public bool IsGrabbing { get { return m_bIsGrabbing; } }
 
-        public void fn_Init(EGrabberInfo info)
+        public void fn_Init(EGrabberInfo info, int camIndex)
         {
             try
             {
                 m_nInterfaceIndex = info.InterfaceIndex;
                 m_nDeviceIndex    = info.DeviceIndex;
+                m_nCameraIndex    = camIndex;
 
                 if (!string.IsNullOrWhiteSpace(G.SYSTEM.SensorInputLine))
                     m_strSensorLine = G.SYSTEM.SensorInputLine.Trim();
@@ -347,7 +349,7 @@ namespace KeocGrabber
             // ── 1-1) 센서 ON → 스캔 시작 지연 (IOToolbox DelayTool) ──
             //   지연을 쓰면 시퀀스 시작 트리거를 LIN1이 아니라 지연 블록 출력에서 받는다.
             //   실패하면 LIN1을 그대로 써서 기존 동작(지연 없음)을 유지한다.
-            string strSeqTriggerSource = fn_SetupTriggerDelay(G.SYSTEM.SensorTriggerDelay) ?? "LIN1";
+            string strSeqTriggerSource = fn_SetupTriggerDelay(G.SYSTEM.fn_GetSensorTriggerDelay(m_nCameraIndex)) ?? "LIN1";
 
             // ── 2) Camera(Remote): 보드 CoaXPress 라인트리거로 라인 스캔 ──
             //   이 카메라는 순수 라인스캔(FrameStart 없음, LineStart 트리거만 존재)이므로
@@ -463,7 +465,7 @@ namespace KeocGrabber
                 string strSource = fn_FindDelayTriggerSource();
                 if (strSource == null)
                 {
-                    G.WriteLog($"Euresys 트리거 지연: StartOfSequenceTriggerSource에 {m_strDelayTool} 출력이 없음 → 지연 미적용 " +
+                    G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 트리거 지연: StartOfSequenceTriggerSource에 {m_strDelayTool} 출력이 없음 → 지연 미적용 " +
                                $"(후보: {string.Join(",", fn_DeviceEnumEntries("StartOfSequenceTriggerSource"))})", true);
                     return null;
                 }
@@ -472,7 +474,7 @@ namespace KeocGrabber
                 var clocks = fn_GetClockCandidates();
                 if (clocks.Count == 0)
                 {
-                    G.WriteLog($"Euresys 트리거 지연: 사용 가능한 DelayToolClockSource를 해석하지 못함 → 지연 미적용 " +
+                    G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 트리거 지연: 사용 가능한 DelayToolClockSource를 해석하지 못함 → 지연 미적용 " +
                                $"(후보: {string.Join(",", fn_InterfaceEnumEntries("DelayToolClockSource"))})", true);
                     return null;
                 }
@@ -492,18 +494,18 @@ namespace KeocGrabber
                         if (nReadback != nTicks) continue;
 
                         double dActualUs = nReadback * clk.Value;
-                        G.WriteLog($"Euresys 트리거 지연 설정: {dActualUs:F1}us (요청 {nDelayUs}us, " +
+                        G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 트리거 지연 설정: {dActualUs:F1}us (요청 {nDelayUs}us, " +
                                    $"{m_strDelayTool} clk:{clk.Key} {nReadback}tick, 분해능 {clk.Value:F2}us) → {strSource}");
                         return strSource;
                     }
                     catch { /* 다음 클럭으로 */ }
                 }
 
-                G.WriteLog($"Euresys 트리거 지연: {nDelayUs}us를 표현할 수 있는 클럭이 없음 → 지연 미적용", true);
+                G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 트리거 지연: {nDelayUs}us를 표현할 수 있는 클럭이 없음 → 지연 미적용", true);
             }
             catch (Exception ex)
             {
-                G.WriteLog($"Euresys 트리거 지연 설정 실패 → 지연 미적용: {ex.Message}", true);
+                G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 트리거 지연 설정 실패 → 지연 미적용: {ex.Message}", true);
             }
             return null;
         }

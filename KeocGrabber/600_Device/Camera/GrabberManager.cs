@@ -113,7 +113,8 @@ namespace KeocGrabber
                     EGrabberInfo info = m_discovery.GetGrabber(i);
                     EuresysGrabber grabber = new EuresysGrabber();
                     grabber.OnLog = fn_LogWrite;
-                    grabber.fn_Init(info);
+                    // 카메라 인덱스 = 성공 시 들어갈 리스트 위치. Cam1~4/CamExposure1~4와 동일한 인덱싱.
+                    grabber.fn_Init(info, m_listEuresys.Count);
                     if (grabber.IsInit)
                         m_listEuresys.Add(grabber);
                 }

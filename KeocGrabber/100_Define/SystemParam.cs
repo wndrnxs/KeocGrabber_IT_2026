@@ -58,8 +58,14 @@ namespace KeocGrabber
         bool useSensorIO = true;
         string sensorInputLine = "IIN11";
         bool sensorLogEnable = true;
-        int sensorTriggerDelay = 0;
         string sensorDelayTool = "DEL1";
+
+        // 카메라(보드)마다 센서-시야 간 거리가 다를 수 있어 지연은 카메라별로 둔다.
+        // (CamExposure1~4, LightTop1~4와 동일한 관례)
+        int sensorTriggerDelay1 = 0;
+        int sensorTriggerDelay2 = 0;
+        int sensorTriggerDelay3 = 0;
+        int sensorTriggerDelay4 = 0;
 
         //Cam Delay
         int grabDelayCam1 = 0;
@@ -182,12 +188,29 @@ namespace KeocGrabber
         // 센서 신호(상승 에지) 검출 시 로그 기록 여부.
         public bool SensorLogEnable { get { return sensorLogEnable; } set { sensorLogEnable = value; } }
 
-        // 센서 ON 후 스캔 시작까지의 지연(us). 0 = 지연 없음(센서 즉시 촬상).
-        // 보드의 IOToolbox DelayTool로 처리하므로 소프트웨어 지터가 없다.
+        // 센서 ON 후 스캔 시작까지의 지연(us). 카메라 인덱스별(0:Front 1:Rear 2:InSide 3:OutSide).
+        // 0 = 지연 없음(센서 즉시 촬상). 보드의 IOToolbox DelayTool로 처리하므로 소프트웨어 지터가 없다.
         // 참고: 이송 200mm/s 기준 1000us = 0.2mm.
-        public int SensorTriggerDelay { get { return sensorTriggerDelay; } set { sensorTriggerDelay = value; } }
+        public int SensorTriggerDelay1 { get { return sensorTriggerDelay1; } set { sensorTriggerDelay1 = value; } }
+        public int SensorTriggerDelay2 { get { return sensorTriggerDelay2; } set { sensorTriggerDelay2 = value; } }
+        public int SensorTriggerDelay3 { get { return sensorTriggerDelay3; } set { sensorTriggerDelay3 = value; } }
+        public int SensorTriggerDelay4 { get { return sensorTriggerDelay4; } set { sensorTriggerDelay4 = value; } }
 
-        // 사용할 IOToolbox 지연 블록 이름 (DEL1 ~ DEL4).
+        /// <summary>카메라 인덱스(0-base)별 센서 트리거 지연(us)</summary>
+        public int fn_GetSensorTriggerDelay(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return sensorTriggerDelay1;
+                case 1: return sensorTriggerDelay2;
+                case 2: return sensorTriggerDelay3;
+                case 3: return sensorTriggerDelay4;
+            }
+            return 0;
+        }
+
+        // 사용할 IOToolbox 지연 블록 이름 (DEL1 ~ DEL4). 카메라마다 자기 보드의 블록을 쓰므로
+        // 보드 간 충돌 없이 공통 이름을 써도 된다 — 필요해지면 카메라별로도 나눌 수 있다.
         public string SensorDelayTool { get { return sensorDelayTool; } set { sensorDelayTool = value; } }
 
         public int GrabHeight { get { return grabHeight; } set { grabHeight = value; } }
