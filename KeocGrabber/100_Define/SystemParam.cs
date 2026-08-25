@@ -67,6 +67,15 @@ namespace KeocGrabber
         int sensorTriggerDelay3 = 0;
         int sensorTriggerDelay4 = 0;
 
+        // 카메라별 목표 라인레이트(Hz, AcquisitionLineRate). 렌즈/센서 조합이 카메라마다
+        // 다를 수 있어(예: 늘어짐/눌림 보정) 공용 상수 대신 카메라별 값으로 둔다.
+        // 기본값은 기존 하드코딩 상수(라인주기 90.5us = 1e6/90.5Hz)와 동일하다.
+        const double DEFAULT_LINE_RATE_HZ = 1e6 / 90.5;
+        double camLineRate1 = DEFAULT_LINE_RATE_HZ;
+        double camLineRate2 = DEFAULT_LINE_RATE_HZ;
+        double camLineRate3 = DEFAULT_LINE_RATE_HZ;
+        double camLineRate4 = DEFAULT_LINE_RATE_HZ;
+
         int grabTimeout = 45000;
         int grabHeight = 32768;
 
@@ -202,6 +211,26 @@ namespace KeocGrabber
         // 사용할 IOToolbox 지연 블록 이름 (DEL1 ~ DEL4). 카메라마다 자기 보드의 블록을 쓰므로
         // 보드 간 충돌 없이 공통 이름을 써도 된다 — 필요해지면 카메라별로도 나눌 수 있다.
         public string SensorDelayTool { get { return sensorDelayTool; } set { sensorDelayTool = value; } }
+
+        // 카메라별 목표 라인레이트(Hz). Euresys AcquisitionLineRate와 동일한 단위/의미.
+        // Setup 화면 CAM SETTING 탭에서 Gain/Exposure와 함께 편집한다.
+        public double CamLineRate1 { get { return camLineRate1; } set { camLineRate1 = value; } }
+        public double CamLineRate2 { get { return camLineRate2; } set { camLineRate2 = value; } }
+        public double CamLineRate3 { get { return camLineRate3; } set { camLineRate3 = value; } }
+        public double CamLineRate4 { get { return camLineRate4; } set { camLineRate4 = value; } }
+
+        /// <summary>카메라 인덱스(0-base)별 목표 라인레이트(Hz)</summary>
+        public double fn_GetCamLineRate(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return camLineRate1;
+                case 1: return camLineRate2;
+                case 2: return camLineRate3;
+                case 3: return camLineRate4;
+            }
+            return DEFAULT_LINE_RATE_HZ;
+        }
 
         public int GrabHeight { get { return grabHeight; } set { grabHeight = value; } }
 

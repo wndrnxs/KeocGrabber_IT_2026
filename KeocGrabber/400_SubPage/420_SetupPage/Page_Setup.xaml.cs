@@ -123,6 +123,13 @@ namespace KeocGrabber
         public float CamGain3 { get { return fCamGain3; } set { fCamGain3 = value; delUpdateGain?.Invoke(value, 2);  OnPropertyChanged(nameof(CamGain3)); } }
         public float CamGain4 { get { return fCamGain4; } set { fCamGain4 = value; delUpdateGain?.Invoke(value, 3);  OnPropertyChanged(nameof(CamGain4)); } }
 
+        // 라인레이트(Hz)는 레시피가 아니라 카메라(렌즈) 물리 설정값이라 SystemParam에 저장한다.
+        // (SensorTriggerDelay1~4와 동일한 이유) — 값 변경은 다음 grab 시작부터 바로 반영된다.
+        public double CamLineRate1 { get { return G.SYSTEM.CamLineRate1; } set { G.SYSTEM.CamLineRate1 = value; OnPropertyChanged(nameof(CamLineRate1)); } }
+        public double CamLineRate2 { get { return G.SYSTEM.CamLineRate2; } set { G.SYSTEM.CamLineRate2 = value; OnPropertyChanged(nameof(CamLineRate2)); } }
+        public double CamLineRate3 { get { return G.SYSTEM.CamLineRate3; } set { G.SYSTEM.CamLineRate3 = value; OnPropertyChanged(nameof(CamLineRate3)); } }
+        public double CamLineRate4 { get { return G.SYSTEM.CamLineRate4; } set { G.SYSTEM.CamLineRate4 = value; OnPropertyChanged(nameof(CamLineRate4)); } }
+
         public int LightTopValue { get { return nLightTopValue; } set { nLightTopValue = value; delUpdateLightTop?.Invoke(nLightTopCtrlNo, value);  OnPropertyChanged(nameof(LightTopValue)); } }
         public int LightTop1 { get { return nLightTop1; } set { nLightTop1 = value; OnPropertyChanged(nameof(LightTop1)); } }
         public int LightTop2 { get { return nLightTop2; } set { nLightTop2 = value; OnPropertyChanged(nameof(LightTop2)); } }

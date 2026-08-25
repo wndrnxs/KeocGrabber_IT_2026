@@ -40,9 +40,11 @@ namespace KeocGrabber
         const ulong POP_TIMEOUT_MS    = 1000;    // 짧게: m_bThreadRunning=false 후 스레드가 ~1s 내 종료(stop 응답성 ↑, 중복 pop 방지)
         const ulong LIVE_BUFFER_HEIGHT = 256;
         const ulong GRAB_CHUNK_HEIGHT  = 1024;   // production: 1024라인씩 받아 ImageManager가 GrabHeight까지 누적
-        // 현장조건: 200mm/s 물체 스캔용 라인주기(=11050Hz).
-        // 라인주기 = X픽셀분해능 / 속도 라야 정사각 비율. 늘어짐 보정 필요시 = 현주기 × (정사각물체 결과 H/W).
-        const double TARGET_LINE_PERIOD_US = 90.5;
+        // 현장조건: 200mm/s 물체 스캔용 라인레이트. 기본 11049.7Hz(=라인주기 90.5us).
+        // 라인주기 = X픽셀분해능 / 속도 라야 정사각 비율. 늘어짐 보정 필요시 = 현재값 × (정사각물체 결과 H/W).
+        // 카메라(렌즈·센서)마다 값이 다를 수 있어 SystemParam.CamLineRate1~4(Hz)로 카메라별로 둔다.
+        // fn_SetExternalTrigger()가 매 grab 시작마다 자기 카메라 인덱스로 최신값을 읽으므로,
+        // Setup 화면에서 값을 바꾸면 재시작 없이 다음 grab부터 바로 반영된다.
 
         // ── 센서 입력 라인 (15pin D-Sub #3 = IIN11+, #12 = IIN11-) ──────────────
         // 이 라인은 fn_SetExternalTrigger()에서 LIN1(스캔 시작 트리거)으로 매핑된다.
@@ -354,10 +356,12 @@ namespace KeocGrabber
             // ── 2) Camera(Remote): 보드 CoaXPress 라인트리거로 라인 스캔 ──
             //   이 카메라는 순수 라인스캔(FrameStart 없음, LineStart 트리거만 존재)이므로
             //   라인마다 보드가 보내는 CXP 트리거를 받아 1라인씩 스캔한다.
-            //   라인주기는 TARGET_LINE_PERIOD_US(현장조건+늘어짐 보정). 카메라가 이 속도를 내려면 노출시간 < 라인주기 여야 한다.
-            //   노출이 라인주기보다 길면 카메라 라인레이트가 제한돼 보드가 더 빨라 오버런→일부 줄에서 멈춘다.
+            //   라인주기는 카메라별 목표 라인레이트(현장조건+늘어짐 보정)에서 나온다. 카메라가 이 속도를
+            //   내려면 노출시간 < 라인주기 여야 한다. 노출이 라인주기보다 길면 카메라 라인레이트가
+            //   제한돼 보드가 더 빨라 오버런→일부 줄에서 멈춘다.
             double dLineRate = 9600.0;
-            double targetRate = 1e6 / TARGET_LINE_PERIOD_US;   // 목표 라인레이트(Hz)
+            double targetRate = G.SYSTEM.fn_GetCamLineRate(m_nCameraIndex);   // 목표 라인레이트(Hz), 카메라별
+            double targetLinePeriodUs = 1e6 / targetRate;
             try
             {
                 try { _egrabber.Remote.Set<string>("AcquisitionMode", "Continuous"); } catch { }
@@ -377,14 +381,14 @@ namespace KeocGrabber
                 try { _egrabber.Remote.Set<string>("ExposureMode", "Timed"); } catch { }
 
                 // 노출시간을 라인주기에 맞게 캡(여유 8us) → 카메라가 목표 라인레이트를 낼 수 있게 함
-                double maxExp = TARGET_LINE_PERIOD_US - 8.0;
+                double maxExp = targetLinePeriodUs - 8.0;
                 try
                 {
                     double curExp = _egrabber.Remote.Get<double>("ExposureTime");
                     if (curExp > maxExp)
                     {
                         _egrabber.Remote.Set<double>("ExposureTime", maxExp);
-                        G.WriteLog($"Euresys 노출시간 {curExp:F1}->{maxExp:F1}us 제한 (라인주기 {TARGET_LINE_PERIOD_US}us 달성)");
+                        G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 노출시간 {curExp:F1}->{maxExp:F1}us 제한 (라인주기 {targetLinePeriodUs:F1}us 달성)");
                     }
                 }
                 catch { }
@@ -398,7 +402,7 @@ namespace KeocGrabber
 
             // ── 3) Device(보드 CIC): 센서(LIN1) 1펄스 → N개 라인 시퀀스 ──
             //   • CycleTriggerSource=Immediate + CycleMinimumPeriod : 시퀀스 내 라인을
-            //     내부 클럭(TARGET_LINE_PERIOD_US)으로 자동 생성 (cycle 1개 = line 1개)
+            //     내부 클럭(카메라별 목표 라인주기)으로 자동 생성 (cycle 1개 = line 1개)
             //   • StartOfSequenceTriggerSource=LIN1 : 센서 펄스가 시퀀스(=1 이미지) 시작
             //   • EndOfSequenceTriggerSource=SequenceLength, SequenceLength=N : N라인 후 종료
             try
@@ -408,13 +412,15 @@ namespace KeocGrabber
                 try { _egrabber.Device.Set<string>("CycleTriggerSource", "Immediate"); }
                 catch (Exception ex) { G.WriteLog($"Euresys CycleTriggerSource set fail: {ex.Message}", true); }
 
-                // 보드 라인트리거 주기: 카메라가 목표를 낼 수 있으면 정확히 TARGET_LINE_PERIOD_US 유지,
+                // 보드 라인트리거 주기: 카메라가 목표를 낼 수 있으면 목표 라인주기 그대로 유지,
                 // 못 내면 카메라 실제속도×1.03(오버런 방지, 전체 라인 우선).
                 double dCyclePeriodUs = (dLineRate >= targetRate * 0.99)
-                                      ? TARGET_LINE_PERIOD_US
+                                      ? targetLinePeriodUs
                                       : (1e6 / dLineRate) * 1.03;
                 try { _egrabber.Device.Set<double>("CycleMinimumPeriod", dCyclePeriodUs); }
                 catch (Exception ex) { G.WriteLog($"Euresys CycleMinimumPeriod set fail: {ex.Message}", true); }
+
+                G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 라인레이트 목표:{targetRate:F1}Hz 카메라:{dLineRate:F1}Hz 적용주기:{dCyclePeriodUs:F2}us");
 
                 try { _egrabber.Device.Set<string>("StartOfSequenceTriggerSource", strSeqTriggerSource); }
                 catch (Exception ex) { G.WriteLog($"Euresys StartOfSequenceTriggerSource set fail: {ex.Message}", true); }
