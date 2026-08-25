@@ -57,6 +57,8 @@ namespace KeocGrabber
         int sensorPollInterval = 10;
         int sensorLampHold = 1000;
         bool sensorLogEnable = true;
+        int sensorTriggerDelay = 0;
+        string sensorDelayTool = "DEL1";
 
         //Cam Delay
         int grabDelayCam1 = 0;
@@ -184,6 +186,14 @@ namespace KeocGrabber
 
         // 센서 신호(상승 에지) 검출 시 로그 기록 여부.
         public bool SensorLogEnable { get { return sensorLogEnable; } set { sensorLogEnable = value; } }
+
+        // 센서 ON 후 스캔 시작까지의 지연(us). 0 = 지연 없음(센서 즉시 촬상).
+        // 보드의 IOToolbox DelayTool로 처리하므로 소프트웨어 지터가 없다.
+        // 참고: 이송 200mm/s 기준 1000us = 0.2mm.
+        public int SensorTriggerDelay { get { return sensorTriggerDelay; } set { sensorTriggerDelay = value; } }
+
+        // 사용할 IOToolbox 지연 블록 이름 (DEL1 ~ DEL4).
+        public string SensorDelayTool { get { return sensorDelayTool; } set { sensorDelayTool = value; } }
 
         public int GrabHeight { get { return grabHeight; } set { grabHeight = value; } }
 

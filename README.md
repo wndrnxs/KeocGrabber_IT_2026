@@ -179,6 +179,24 @@ Main 화면 우측 GrabState와 Log 사이에 **한 줄짜리 상태 표시줄**
 | `SensorPollInterval` | `10` | 폴링 주기(ms). 짧을수록 짧은 펄스를 잘 잡음 |
 | `SensorLampHold` | `1000` | 검출 후 램프 유지 시간(ms). UI 갱신 주기(500ms)보다 커야 함 |
 | `SensorLogEnable` | `true` | 검출 시 로그 기록 여부 |
+| `SensorTriggerDelay` | `0` | 센서 ON 후 스캔 시작까지 지연(us). 0 = 지연 없음 |
+| `SensorDelayTool` | `DEL1` | 지연에 사용할 IOToolbox 블록 (DEL1~DEL4) |
+
+### 촬상 지연 (센서 ON → 스캔 시작)
+
+센서와 카메라 시야 사이의 거리를 보정하기 위해, 센서 신호가 들어온 뒤 일정 시간 기다렸다가 스캔을 시작할 수 있습니다. 지연은 **보드 하드웨어(IOToolbox DelayTool)**가 처리하므로 소프트웨어 지터가 없습니다.
+
+```
+IIN11 ──▶ LIN1 ──▶ DelayTool(DEL1) ──▶ StartOfSequenceTriggerSource ──▶ N라인 시퀀스
+                    (SensorTriggerDelay us)
+```
+
+- `SensorTriggerDelay = 0`이면 지연 블록을 거치지 않고 기존대로 `LIN1`이 직접 시퀀스를 시작합니다.
+- `DelayToolDelayValue`는 시간이 아니라 `DelayToolClockSource`의 **틱 수**이므로, 코드가 요청 지연을 담을 수 있는 가장 분해능 높은 클럭을 자동으로 골라 환산합니다. 설정 후 readback으로 반영 여부를 확인하고, 값이 잘리면 다음 클럭으로 재시도합니다.
+- 설정 결과는 로그로 남습니다 — `Euresys 트리거 지연 설정: 5000.0us (요청 5000us, DEL1 clk:MHz1 5000tick, 분해능 1.00us) → DEL11`
+- **설정에 실패하면 지연 없이(LIN1 직결) 동작하며 그 사실을 로그에 남깁니다.** 조용히 잘못된 지연이 적용되는 일은 없습니다.
+- UI의 센서 램프는 지연 전 **물리 라인(IIN11)**을 그대로 읽으므로, 램프가 켜지는 시점은 지연과 무관하게 센서가 실제로 감지한 순간입니다.
+- 참고: 이송 200mm/s 기준 `1000us = 0.2mm`.
 
 ### 제약
 
@@ -197,7 +215,8 @@ Main 화면 우측 GrabState와 Log 사이에 **한 줄짜리 상태 표시줄**
 
 ## 13. 알려진 제약 / TODO
 
-- 센서 입력 I/O 모니터링은 Euresys 전용이며 Matrox 지원은 미구현(§11 참고)
+- 센서 입력 I/O 모니터링과 촬상 지연은 Euresys 전용이며 Matrox 지원은 미구현(§11 참고)
+- 촬상 지연의 `DelayTool` 출력 이름(`StartOfSequenceTriggerSource`의 열거값)은 보드/드라이버 버전에 따라 다를 수 있어 코드가 열거값을 검색해 매칭합니다. 현장 첫 적용 시 로그로 실제 선택된 이름을 확인할 것
 - 카메라 1대·3대 구성은 코드상 지원되나 현장 검증 이력이 없음(§7 참고). 하부 조명 채널 매핑(`CamCount + n`)은 4대 구성 기준을 일반화한 것이라 실제 배선 확인 필요
 - `GrabberManager.IsGrabbing`은 "전부 그랩 중"의 부정(=하나라도 멈춤)을 반환해 이름과 의미가 반대. `ImageManager.ComplateImage`에서 종료 판정에 쓰이므로 수정 시 동작 확인 필요
 - 드라이브 용량 기반 이미지 자동 삭제 기능 비활성화 상태(§9 참고)

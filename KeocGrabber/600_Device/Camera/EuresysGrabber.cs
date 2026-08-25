@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Euresys.EGrabber;
 using OpenCvSharp;
@@ -46,6 +47,7 @@ namespace KeocGrabber
         // 이 라인은 fn_SetExternalTrigger()에서 LIN1(스캔 시작 트리거)으로 매핑된다.
         // 여기서는 같은 물리 라인의 현재 레벨을 읽어 UI 램프/카운터로 보여준다(배선·센서 점검용).
         string m_strSensorLine = "IIN11";
+        string m_strDelayTool = "DEL1";     // 센서 ON → 스캔 시작 지연에 쓸 IOToolbox 블록
         volatile bool m_bSensorReadable = true;   // LineStatus 미지원이면 false로 내려 폴링 중단
         bool m_bLastSensorLevel = false;
         int m_nSensorFailCount = 0;
@@ -70,6 +72,8 @@ namespace KeocGrabber
 
                 if (!string.IsNullOrWhiteSpace(G.SYSTEM.SensorInputLine))
                     m_strSensorLine = G.SYSTEM.SensorInputLine.Trim();
+                if (!string.IsNullOrWhiteSpace(G.SYSTEM.SensorDelayTool))
+                    m_strDelayTool = G.SYSTEM.SensorDelayTool.Trim();
                 m_bSensorReadable  = true;
                 m_nSensorFailCount = 0;
 
@@ -340,6 +344,11 @@ namespace KeocGrabber
             }
             catch (Exception ex) { G.WriteLog($"Euresys Interface LineInput set fail: {ex.Message}", true); }
 
+            // ── 1-1) 센서 ON → 스캔 시작 지연 (IOToolbox DelayTool) ──
+            //   지연을 쓰면 시퀀스 시작 트리거를 LIN1이 아니라 지연 블록 출력에서 받는다.
+            //   실패하면 LIN1을 그대로 써서 기존 동작(지연 없음)을 유지한다.
+            string strSeqTriggerSource = fn_SetupTriggerDelay(G.SYSTEM.SensorTriggerDelay) ?? "LIN1";
+
             // ── 2) Camera(Remote): 보드 CoaXPress 라인트리거로 라인 스캔 ──
             //   이 카메라는 순수 라인스캔(FrameStart 없음, LineStart 트리거만 존재)이므로
             //   라인마다 보드가 보내는 CXP 트리거를 받아 1라인씩 스캔한다.
@@ -405,7 +414,7 @@ namespace KeocGrabber
                 try { _egrabber.Device.Set<double>("CycleMinimumPeriod", dCyclePeriodUs); }
                 catch (Exception ex) { G.WriteLog($"Euresys CycleMinimumPeriod set fail: {ex.Message}", true); }
 
-                try { _egrabber.Device.Set<string>("StartOfSequenceTriggerSource", "LIN1"); }
+                try { _egrabber.Device.Set<string>("StartOfSequenceTriggerSource", strSeqTriggerSource); }
                 catch (Exception ex) { G.WriteLog($"Euresys StartOfSequenceTriggerSource set fail: {ex.Message}", true); }
 
                 try { _egrabber.Device.Set<string>("EndOfSequenceTriggerSource", "SequenceLength"); }
@@ -415,6 +424,147 @@ namespace KeocGrabber
                 catch (Exception ex) { G.WriteLog($"Euresys SequenceLength set fail: {ex.Message}", true); }
             }
             catch (Exception ex) { G.WriteLog($"Euresys Device sequence set fail: {ex.Message}", true); }
+        }
+
+        // --- 센서 트리거 지연 (Interface > IOToolbox > DelayTool) ---
+
+        /// <summary>
+        /// 센서 신호(LIN1)를 지연 블록에 통과시켜, 지연된 출력을 시퀀스 시작 트리거로 쓴다.
+        ///
+        ///   LIN1 ──▶ DelayTool(DEL1) ──▶ StartOfSequenceTriggerSource
+        ///
+        /// DelayToolDelayValue는 시간이 아니라 DelayToolClockSource의 "틱 수"이므로,
+        /// 요청 지연을 담을 수 있는 가장 분해능 높은 클럭을 골라 틱으로 환산한다.
+        /// 설정 후 readback으로 실제 반영 여부를 확인하고, 실패하면 null을 돌려
+        /// 호출측이 기존 경로(LIN1 직결 = 지연 없음)를 그대로 쓰게 한다.
+        /// </summary>
+        /// <param name="nDelayUs">지연 시간(us). 0 이하면 지연 사용 안 함.</param>
+        /// <returns>시퀀스 시작 트리거로 쓸 소스 이름. 지연 미사용/실패 시 null.</returns>
+        private string fn_SetupTriggerDelay(int nDelayUs)
+        {
+            if (nDelayUs <= 0)
+            {
+                // 이전 설정이 남아 있으면 끊어 둔다(지연 없이 동작해야 하므로).
+                try
+                {
+                    _egrabber.Interface.Set<string>("DelayToolSelector", m_strDelayTool);
+                    _egrabber.Interface.Set<string>("DelayToolSource1", "NONE");
+                }
+                catch { }
+                return null;
+            }
+
+            try
+            {
+                _egrabber.Interface.Set<string>("DelayToolSelector", m_strDelayTool);
+                _egrabber.Interface.Set<string>("DelayToolSource1", "LIN1");
+
+                // 지연 출력을 시퀀스 시작 트리거로 받을 수 있는지 먼저 확인.
+                string strSource = fn_FindDelayTriggerSource();
+                if (strSource == null)
+                {
+                    G.WriteLog($"Euresys 트리거 지연: StartOfSequenceTriggerSource에 {m_strDelayTool} 출력이 없음 → 지연 미적용 " +
+                               $"(후보: {string.Join(",", fn_DeviceEnumEntries("StartOfSequenceTriggerSource"))})", true);
+                    return null;
+                }
+
+                // 클럭 후보를 주기(us) 오름차순 = 분해능 높은 순으로 시도.
+                var clocks = fn_GetClockCandidates();
+                if (clocks.Count == 0)
+                {
+                    G.WriteLog($"Euresys 트리거 지연: 사용 가능한 DelayToolClockSource를 해석하지 못함 → 지연 미적용 " +
+                               $"(후보: {string.Join(",", fn_InterfaceEnumEntries("DelayToolClockSource"))})", true);
+                    return null;
+                }
+
+                foreach (var clk in clocks)
+                {
+                    long nTicks = (long)Math.Round(nDelayUs / clk.Value);
+                    if (nTicks < 1) continue;   // 이 클럭으로는 표현 불가(너무 느린 클럭)
+
+                    try
+                    {
+                        _egrabber.Interface.Set<string>("DelayToolClockSource", clk.Key);
+                        _egrabber.Interface.Set<long>("DelayToolDelayValue", nTicks);
+
+                        // 레지스터 폭을 넘으면 값이 잘리므로 반드시 readback으로 확인.
+                        long nReadback = _egrabber.Interface.Get<long>("DelayToolDelayValue");
+                        if (nReadback != nTicks) continue;
+
+                        double dActualUs = nReadback * clk.Value;
+                        G.WriteLog($"Euresys 트리거 지연 설정: {dActualUs:F1}us (요청 {nDelayUs}us, " +
+                                   $"{m_strDelayTool} clk:{clk.Key} {nReadback}tick, 분해능 {clk.Value:F2}us) → {strSource}");
+                        return strSource;
+                    }
+                    catch { /* 다음 클럭으로 */ }
+                }
+
+                G.WriteLog($"Euresys 트리거 지연: {nDelayUs}us를 표현할 수 있는 클럭이 없음 → 지연 미적용", true);
+            }
+            catch (Exception ex)
+            {
+                G.WriteLog($"Euresys 트리거 지연 설정 실패 → 지연 미적용: {ex.Message}", true);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// StartOfSequenceTriggerSource 열거값 중 지연 블록의 첫 번째 출력을 찾는다.
+        /// (블록당 출력이 2개이므로 "DEL1"/"DEL11" 순으로 우선 매칭)
+        /// </summary>
+        private string fn_FindDelayTriggerSource()
+        {
+            string[] entries = fn_DeviceEnumEntries("StartOfSequenceTriggerSource");
+
+            foreach (var e in entries) if (e == m_strDelayTool) return e;
+            foreach (var e in entries) if (e == m_strDelayTool + "1") return e;
+            foreach (var e in entries) if (e.StartsWith(m_strDelayTool, StringComparison.OrdinalIgnoreCase)) return e;
+            return null;
+        }
+
+        /// <summary>
+        /// DelayToolClockSource 열거값을 (이름, 1틱당 us)로 해석해 분해능 높은 순으로 정렬한다.
+        /// 이름 형식은 보드/드라이버 버전에 따라 "MHz100" / "100MHz" 등으로 다를 수 있어 둘 다 인식한다.
+        /// </summary>
+        private List<KeyValuePair<string, double>> fn_GetClockCandidates()
+        {
+            var list = new List<KeyValuePair<string, double>>();
+            var re = new System.Text.RegularExpressions.Regex(
+                @"(?:(?<unit>MHz|kHz|Hz)\s*(?<num>\d+(?:\.\d+)?))|(?:(?<num2>\d+(?:\.\d+)?)\s*(?<unit2>MHz|kHz|Hz))",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            foreach (var name in fn_InterfaceEnumEntries("DelayToolClockSource"))
+            {
+                var m = re.Match(name);
+                if (!m.Success) continue;
+
+                string strNum  = m.Groups["num"].Success  ? m.Groups["num"].Value  : m.Groups["num2"].Value;
+                string strUnit = m.Groups["unit"].Success ? m.Groups["unit"].Value : m.Groups["unit2"].Value;
+
+                double dNum;
+                if (!double.TryParse(strNum, out dNum) || dNum <= 0) continue;
+
+                double dHz = strUnit.Equals("MHz", StringComparison.OrdinalIgnoreCase) ? dNum * 1e6
+                           : strUnit.Equals("kHz", StringComparison.OrdinalIgnoreCase) ? dNum * 1e3
+                           : dNum;
+
+                list.Add(new KeyValuePair<string, double>(name, 1e6 / dHz));   // 1틱당 us
+            }
+
+            list.Sort((a, b) => a.Value.CompareTo(b.Value));   // 분해능 높은(주기 짧은) 순
+            return list;
+        }
+
+        private string[] fn_InterfaceEnumEntries(string feature)
+        {
+            try { return _egrabber.Interface.EnumEntries(feature, true); }
+            catch { return new string[0]; }
+        }
+
+        private string[] fn_DeviceEnumEntries(string feature)
+        {
+            try { return _egrabber.Device.EnumEntries(feature, true); }
+            catch { return new string[0]; }
         }
 
         // --- 센서 입력 I/O (Interface 레이어) ---
