@@ -177,7 +177,7 @@ Main 화면 우측 GrabState와 Log 사이에 **한 줄짜리 상태 표시줄**
 | `UseSensorIO` | `true` | 센서 I/O 모니터링 사용 여부 |
 | `SensorInputLine` | `IIN11` | 센서가 물린 Interface 라인. 트리거 소스(LIN1)에도 함께 적용됨 |
 | `SensorLogEnable` | `true` | 검출 시 로그 기록 여부 |
-| `SensorTriggerDelay1~4` | `0` | 카메라별(0:Front 1:Rear 2:InSide 3:OutSide) 센서 ON 후 스캔 시작까지 지연(us). 0 = 지연 없음. `CamExposure1~4`와 동일한 관례 |
+| `SensorTriggerDelay1~4` | `0` | 카메라별(0:Front 1:Rear 2:InSide 3:OutSide) 센서 ON 후 스캔 시작까지 지연(**ms**, 1000 = 1초). 0 = 지연 없음. `CamExposure1~4`와 동일한 관례 |
 | `SensorDelayTool` | `DEL1` | 지연에 사용할 IOToolbox 블록 이름 (DEL1~DEL4). 카메라마다 자기 보드의 블록을 쓰므로 공용 이름을 써도 충돌 없음 |
 
 ### 촬상 지연 (센서 ON → 스캔 시작)
@@ -186,16 +186,17 @@ Main 화면 우측 GrabState와 Log 사이에 **한 줄짜리 상태 표시줄**
 
 ```
 IIN11 ──▶ LIN1 ──▶ DelayTool(DEL1) ──▶ StartOfSequenceTriggerSource ──▶ N라인 시퀀스
-                    (SensorTriggerDelay1~4 us, 카메라별)
+                    (SensorTriggerDelay1~4 ms, 카메라별)
 ```
 
-- `SensorTriggerDelay1~4`는 카메라 인덱스(0:Front 1:Rear 2:InSide 3:OutSide)별 값입니다. 카메라는 각자 자기 보드에서 지연을 계산·적용하므로 다른 카메라의 값에 영향을 주지 않습니다.
+- `SensorTriggerDelay1~4`는 카메라 인덱스(0:Front 1:Rear 2:InSide 3:OutSide)별 값이며 **ms 단위**입니다(`1000` = 1초). 보드가 실제로 요구하는 단위는 us이므로, `SystemParam.fn_GetSensorTriggerDelay(idx)`가 XML의 ms 값을 1000배 해 us로 환산한 뒤 `EuresysGrabber`에 넘깁니다 — 이후 계산(클럭 선택, 틱 환산, 로그)은 모두 이 us 단위 기준입니다.
+- 카메라는 각자 자기 보드에서 지연을 계산·적용하므로 다른 카메라의 값에 영향을 주지 않습니다.
 - 해당 카메라의 값이 `0`이면 지연 블록을 거치지 않고 기존대로 `LIN1`이 직접 시퀀스를 시작합니다.
 - `DelayToolDelayValue`는 시간이 아니라 `DelayToolClockSource`의 **틱 수**이므로, 코드가 요청 지연을 담을 수 있는 가장 분해능 높은 클럭을 자동으로 골라 환산합니다. `DelayToolClockSource`는 `TIME8NS`/`TIME200NS`/`TIME1US`처럼 주기를 직접 이름에 담은 형식과 `MHz100` 같은 주파수 형식을 모두 인식합니다. 설정 후 readback으로 반영 여부를 확인하고, 값이 잘리면(레지스터 폭 초과) 다음 클럭으로 재시도합니다.
-- 설정 결과는 카메라별로 로그에 남습니다 — `Euresys[CAM1] 트리거 지연 설정: 10000000.0us (요청 10000000us, DEL1 clk:TIME1US 10000000tick, 분해능 1.00us) → DEL11`
+- 설정 결과는 카메라별로 로그에 남습니다(us 단위) — `Euresys[CAM1] 트리거 지연 설정: 10000000.0us (요청 10000000us, DEL1 clk:TIME1US 10000000tick, 분해능 1.00us) → DEL11` (= XML `SensorTriggerDelay1 = 10000`, 10초)
 - **설정에 실패하면 해당 카메라만 지연 없이(LIN1 직결) 동작하며 그 사실을 로그에 남깁니다.** 다른 카메라의 지연 설정에는 영향을 주지 않고, 조용히 잘못된 지연이 적용되는 일도 없습니다. 실패 로그에는 `DelayToolClockSource`의 실제 열거값이 함께 찍히므로, 보드/드라이버 버전이 달라 이름 형식이 다르면 바로 확인할 수 있습니다.
 - UI의 센서 램프는 지연 전 **물리 라인(IIN11)**을 그대로 읽으므로, 램프가 켜지는 시점은 지연과 무관하게 센서가 실제로 감지한 순간입니다.
-- 참고: 이송 200mm/s 기준 `1000us = 0.2mm`.
+- 참고: 이송 200mm/s 기준 `1ms = 0.2mm`.
 
 ### 제약
 

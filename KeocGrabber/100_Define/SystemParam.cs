@@ -67,12 +67,6 @@ namespace KeocGrabber
         int sensorTriggerDelay3 = 0;
         int sensorTriggerDelay4 = 0;
 
-        //Cam Delay
-        int grabDelayCam1 = 0;
-        int grabDelayCam2 = 0;
-        int grabDelayCam3 = 0;
-        int grabDelayCam4 = 0;
-
         int grabTimeout = 45000;
         int grabHeight = 32768;
 
@@ -150,11 +144,6 @@ namespace KeocGrabber
         }
         //public int LightCount{ get { return lightCount; } set { lightCount = value; } }
 
-        public int GrabDelayCam1 { get { return grabDelayCam1; } set { grabDelayCam1 = value; } }
-        public int GrabDelayCam2 { get { return grabDelayCam2; } set { grabDelayCam2 = value; } }
-        public int GrabDelayCam3 { get { return grabDelayCam3; } set { grabDelayCam3 = value; } }
-        public int GrabDelayCam4 { get { return grabDelayCam4; } set { grabDelayCam4 = value; } }
-
         public int GrabTimeout { get { return grabTimeout; } set { grabTimeout = value; } }
 
         public string LightPortTop1 { get { return lightPortTop1; } set { lightPortTop1 = value; } }
@@ -188,23 +177,24 @@ namespace KeocGrabber
         // 센서 신호(상승 에지) 검출 시 로그 기록 여부.
         public bool SensorLogEnable { get { return sensorLogEnable; } set { sensorLogEnable = value; } }
 
-        // 센서 ON 후 스캔 시작까지의 지연(us). 카메라 인덱스별(0:Front 1:Rear 2:InSide 3:OutSide).
+        // 센서 ON 후 스캔 시작까지의 지연(ms). 카메라 인덱스별(0:Front 1:Rear 2:InSide 3:OutSide).
         // 0 = 지연 없음(센서 즉시 촬상). 보드의 IOToolbox DelayTool로 처리하므로 소프트웨어 지터가 없다.
-        // 참고: 이송 200mm/s 기준 1000us = 0.2mm.
+        // XML에는 ms로 저장하고(1000 = 1초), fn_GetSensorTriggerDelay()가 실제 하드웨어
+        // 계산에 필요한 us로 환산해 돌려준다.
         public int SensorTriggerDelay1 { get { return sensorTriggerDelay1; } set { sensorTriggerDelay1 = value; } }
         public int SensorTriggerDelay2 { get { return sensorTriggerDelay2; } set { sensorTriggerDelay2 = value; } }
         public int SensorTriggerDelay3 { get { return sensorTriggerDelay3; } set { sensorTriggerDelay3 = value; } }
         public int SensorTriggerDelay4 { get { return sensorTriggerDelay4; } set { sensorTriggerDelay4 = value; } }
 
-        /// <summary>카메라 인덱스(0-base)별 센서 트리거 지연(us)</summary>
+        /// <summary>카메라 인덱스(0-base)별 센서 트리거 지연(us). XML 저장값(ms)을 us로 환산해 반환한다.</summary>
         public int fn_GetSensorTriggerDelay(int idx)
         {
             switch (idx)
             {
-                case 0: return sensorTriggerDelay1;
-                case 1: return sensorTriggerDelay2;
-                case 2: return sensorTriggerDelay3;
-                case 3: return sensorTriggerDelay4;
+                case 0: return sensorTriggerDelay1 * 1000;
+                case 1: return sensorTriggerDelay2 * 1000;
+                case 2: return sensorTriggerDelay3 * 1000;
+                case 3: return sensorTriggerDelay4 * 1000;
             }
             return 0;
         }
