@@ -41,8 +41,9 @@ namespace KeocGrabber
         int[] m_nChannelOfCam = new int[0];     // 카메라 인덱스 → 채널(물리 보드) 인덱스
         SensorChannel[] m_channels = new SensorChannel[0];
 
-        int m_nPollInterval = 10;
-        int m_nLampHold = 1000;
+        // 현장별로 조정할 필요가 없어 XML 설정에서 빼고 코드에 고정했다.
+        const int POLL_INTERVAL_MS = 10;    // 라인 상태 폴링 주기
+        const int LAMP_HOLD_MS     = 1000;  // 검출 후 UI 램프 유지 시간 (Main 타이머 500ms보다 커야 함)
 
         readonly object m_lock = new object();
 
@@ -65,9 +66,7 @@ namespace KeocGrabber
                 return;
             }
 
-            m_nCamCount     = Math.Max(0, camCount);
-            m_nPollInterval = Math.Max(1, G.SYSTEM.SensorPollInterval);
-            m_nLampHold     = Math.Max(0, G.SYSTEM.SensorLampHold);
+            m_nCamCount = Math.Max(0, camCount);
 
             fn_BuildChannelMap();
 
@@ -81,7 +80,7 @@ namespace KeocGrabber
             m_thread = new Thread(PollThreadProc) { IsBackground = true };
             m_thread.Start();
 
-            G.WriteLog($"Sensor I/O Start. Line:{G.GRABBER.fn_GetSensorLine(0)} (15pin D-Sub #3/#12), Poll:{m_nPollInterval}ms");
+            G.WriteLog($"Sensor I/O Start. Line:{G.GRABBER.fn_GetSensorLine(0)} (15pin D-Sub #3/#12), Poll:{POLL_INTERVAL_MS}ms");
         }
 
         public void fn_Final()
@@ -154,7 +153,7 @@ namespace KeocGrabber
                     if (m_bRunning) G.WriteLog($"Sensor I/O Poll Error : {ex.Message}", true);
                 }
 
-                Thread.Sleep(m_nPollInterval);
+                Thread.Sleep(POLL_INTERVAL_MS);
             }
         }
 
@@ -183,7 +182,7 @@ namespace KeocGrabber
                     // 상승 에지 = 센서 검출 = 스캔 시작 트리거
                     st.Count++;
                     st.RiseTime = dtNow;
-                    st.HoldUntil = dtNow.AddMilliseconds(m_nLampHold);
+                    st.HoldUntil = dtNow.AddMilliseconds(LAMP_HOLD_MS);
                     bRisingEdge = true;
                     nCount = st.Count;
                 }
@@ -210,7 +209,7 @@ namespace KeocGrabber
         }
 
         /// <summary>
-        /// UI 램프용 상태. 짧은 펄스도 눈에 보이도록 상승 에지 후 SensorLampHold(ms) 동안 켜 둔다.
+        /// UI 램프용 상태. 짧은 펄스도 눈에 보이도록 상승 에지 후 LAMP_HOLD_MS 동안 켜 둔다.
         /// </summary>
         public bool fn_IsSignalOn(int camIdx)
         {

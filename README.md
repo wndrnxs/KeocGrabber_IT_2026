@@ -155,7 +155,7 @@ TCP 프레임은 고정 헤더 + 가변 길이 페이로드로 구성됩니다.
 ### 동작
 
 - `SensorIOManager`(`600_Device/IO/SensorIOManager.cs`)가 백그라운드 스레드로 라인 레벨을 폴링합니다. 읽기는 Euresys Interface 모듈의 `LineSelector`(= `IIN11`) → `LineStatus` 조합이며, 트리거를 소비하지 않으므로 grab 중에도 그대로 사용할 수 있습니다.
-- 상승 에지를 누적 카운트하고 마지막 검출 시각·펄스 폭을 보관합니다. 신호가 짧아도 눈에 보이도록 검출 후 `SensorLampHold`(ms) 동안 램프를 켜 둡니다.
+- 상승 에지를 누적 카운트하고 마지막 검출 시각·펄스 폭을 보관합니다. 신호가 짧아도 눈에 보이도록 검출 후 일정 시간(코드 고정 1000ms) 동안 램프를 켜 둡니다.
 - 한 보드(Interface)에 여러 카메라(Device)가 붙어 있으면 I/O 커넥터는 하나이므로 해당 카메라들은 하나의 채널을 공유하고, 보드 접근도 보드 수만큼만 발생합니다.
 - `SensorLogEnable`이 켜져 있으면 검출 시 `[SENSOR] IIN11 신호 검출 (BOARD1, #12)` 형태로 로그를 남깁니다.
 
@@ -176,8 +176,6 @@ Main 화면 우측 GrabState와 Log 사이에 **한 줄짜리 상태 표시줄**
 |---|---|---|
 | `UseSensorIO` | `true` | 센서 I/O 모니터링 사용 여부 |
 | `SensorInputLine` | `IIN11` | 센서가 물린 Interface 라인. 트리거 소스(LIN1)에도 함께 적용됨 |
-| `SensorPollInterval` | `10` | 폴링 주기(ms). 짧을수록 짧은 펄스를 잘 잡음 |
-| `SensorLampHold` | `1000` | 검출 후 램프 유지 시간(ms). UI 갱신 주기(500ms)보다 커야 함 |
 | `SensorLogEnable` | `true` | 검출 시 로그 기록 여부 |
 | `SensorTriggerDelay` | `0` | 센서 ON 후 스캔 시작까지 지연(us). 0 = 지연 없음 |
 | `SensorDelayTool` | `DEL1` | 지연에 사용할 IOToolbox 블록 (DEL1~DEL4) |

@@ -146,7 +146,7 @@ namespace KeocGrabber
 
         /// <summary>
         /// 센서 I/O 표시 갱신. (MainWindow의 500ms 타이머에서 호출)
-        /// 신호는 짧게 지나가므로 SensorIOManager가 SensorLampHold(ms) 동안 램프를 잡아 준다.
+        /// 신호는 짧게 지나가므로 SensorIOManager가 일정 시간(LAMP_HOLD_MS) 동안 램프를 잡아 준다.
         /// </summary>
         public void Update_IOStatus()
         {

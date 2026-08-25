@@ -52,10 +52,11 @@ namespace KeocGrabber
         MILBOARD_TYPE boardType = MILBOARD_TYPE.EN_BT_RADIENTEVCL;
 
         // Sensor I/O (Euresys 15pin D-Sub : #3 = IIN11+, #12 = IIN11-)
+        // 폴링 주기/램프 유지 시간은 현장별 조정이 필요 없어 SensorIOManager 안에
+        // 상수(POLL_INTERVAL_MS/LAMP_HOLD_MS)로 고정했다. 여기 두는 값은 실제 배선/운용에
+        // 따라 달라지는 것만 남긴다.
         bool useSensorIO = true;
         string sensorInputLine = "IIN11";
-        int sensorPollInterval = 10;
-        int sensorLampHold = 1000;
         bool sensorLogEnable = true;
         int sensorTriggerDelay = 0;
         string sensorDelayTool = "DEL1";
@@ -177,12 +178,6 @@ namespace KeocGrabber
         // 현장 배선 : 15pin D-Sub #3 = IIN11+, #12 = IIN11- → "IIN11"
         // 이 값은 스캔 시작 트리거(LIN1) 소스로도 함께 사용된다.
         public string SensorInputLine { get { return sensorInputLine; } set { sensorInputLine = value; } }
-
-        // 센서 라인 폴링 주기(ms). 짧을수록 짧은 펄스를 잘 잡지만 보드 접근이 잦아진다.
-        public int SensorPollInterval { get { return sensorPollInterval; } set { sensorPollInterval = value; } }
-
-        // 신호 검출 시 UI 램프를 켜 두는 시간(ms). UI 갱신 주기(500ms)보다 커야 눈에 보인다.
-        public int SensorLampHold { get { return sensorLampHold; } set { sensorLampHold = value; } }
 
         // 센서 신호(상승 에지) 검출 시 로그 기록 여부.
         public bool SensorLogEnable { get { return sensorLogEnable; } set { sensorLogEnable = value; } }
