@@ -526,29 +526,58 @@ namespace KeocGrabber
         /// DelayToolClockSource 열거값을 (이름, 1틱당 us)로 해석해 분해능 높은 순으로 정렬한다.
         /// 이름 형식은 보드/드라이버 버전에 따라 "MHz100" / "100MHz" 등으로 다를 수 있어 둘 다 인식한다.
         /// </summary>
-        private List<KeyValuePair<string, double>> fn_GetClockCandidates()
-        {
-            var list = new List<KeyValuePair<string, double>>();
-            var re = new System.Text.RegularExpressions.Regex(
+        // Coaxlink IOToolbox 클럭 이름은 두 형식이 관측된다.
+        //   1) 주기 직접 표기: "TIME8NS", "TIME200NS", "TIME1US" (실제 이 보드가 사용하는 형식)
+        //   2) 주파수 표기: "MHz100" 등 (드라이버/보드 버전에 따라 있을 수 있어 폴백으로 유지)
+        // 두 형식 모두 시도해 1틱당 us(주기)로 통일해 반환한다.
+        private static readonly System.Text.RegularExpressions.Regex RE_CLOCK_PERIOD =
+            new System.Text.RegularExpressions.Regex(
+                @"^TIME(?<num>\d+(?:\.\d+)?)(?<unit>NS|US|MS|S)$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        private static readonly System.Text.RegularExpressions.Regex RE_CLOCK_FREQ =
+            new System.Text.RegularExpressions.Regex(
                 @"(?:(?<unit>MHz|kHz|Hz)\s*(?<num>\d+(?:\.\d+)?))|(?:(?<num2>\d+(?:\.\d+)?)\s*(?<unit2>MHz|kHz|Hz))",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
+        private List<KeyValuePair<string, double>> fn_GetClockCandidates()
+        {
+            var list = new List<KeyValuePair<string, double>>();
+
             foreach (var name in fn_InterfaceEnumEntries("DelayToolClockSource"))
             {
-                var m = re.Match(name);
-                if (!m.Success) continue;
+                double dPeriodUs;
 
-                string strNum  = m.Groups["num"].Success  ? m.Groups["num"].Value  : m.Groups["num2"].Value;
-                string strUnit = m.Groups["unit"].Success ? m.Groups["unit"].Value : m.Groups["unit2"].Value;
+                var mPeriod = RE_CLOCK_PERIOD.Match(name);
+                if (mPeriod.Success)
+                {
+                    double dNum;
+                    if (!double.TryParse(mPeriod.Groups["num"].Value, out dNum) || dNum <= 0) continue;
 
-                double dNum;
-                if (!double.TryParse(strNum, out dNum) || dNum <= 0) continue;
+                    string strUnit = mPeriod.Groups["unit"].Value;
+                    dPeriodUs = strUnit.Equals("NS", StringComparison.OrdinalIgnoreCase) ? dNum / 1000.0
+                              : strUnit.Equals("US", StringComparison.OrdinalIgnoreCase) ? dNum
+                              : strUnit.Equals("MS", StringComparison.OrdinalIgnoreCase) ? dNum * 1000.0
+                              : dNum * 1e6;   // S
+                }
+                else
+                {
+                    var mFreq = RE_CLOCK_FREQ.Match(name);
+                    if (!mFreq.Success) continue;   // NONE, LINx, QDCx 등 시간 클럭이 아닌 항목은 제외
 
-                double dHz = strUnit.Equals("MHz", StringComparison.OrdinalIgnoreCase) ? dNum * 1e6
-                           : strUnit.Equals("kHz", StringComparison.OrdinalIgnoreCase) ? dNum * 1e3
-                           : dNum;
+                    string strNum  = mFreq.Groups["num"].Success  ? mFreq.Groups["num"].Value  : mFreq.Groups["num2"].Value;
+                    string strUnit = mFreq.Groups["unit"].Success ? mFreq.Groups["unit"].Value : mFreq.Groups["unit2"].Value;
 
-                list.Add(new KeyValuePair<string, double>(name, 1e6 / dHz));   // 1틱당 us
+                    double dNum;
+                    if (!double.TryParse(strNum, out dNum) || dNum <= 0) continue;
+
+                    double dHz = strUnit.Equals("MHz", StringComparison.OrdinalIgnoreCase) ? dNum * 1e6
+                               : strUnit.Equals("kHz", StringComparison.OrdinalIgnoreCase) ? dNum * 1e3
+                               : dNum;
+                    dPeriodUs = 1e6 / dHz;
+                }
+
+                list.Add(new KeyValuePair<string, double>(name, dPeriodUs));   // 1틱당 us
             }
 
             list.Sort((a, b) => a.Value.CompareTo(b.Value));   // 분해능 높은(주기 짧은) 순
