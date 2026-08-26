@@ -40,6 +40,7 @@ namespace KeocGrabber
         static public SystemParam SYSTEM = new SystemParam();
 
         static public GrabberManager GRABBER = new GrabberManager();
+        static public SensorIOManager SENSORIO = new SensorIOManager();
         static public LightManager LIGHT = new LightManager();
         static public VieworksCamera[] CAMERA = new VieworksCamera[G.SYSTEM.CamCount];
 
@@ -185,6 +186,9 @@ namespace KeocGrabber
                 GRABBER.fn_Init(G.SYSTEM.CamCount, emptyDcf);
             }
 
+            // 센서 입력(IIN11 = 15pin D-Sub #3/#12) 모니터링 시작.
+            SENSORIO.fn_Init(G.SYSTEM.CamCount);
+
             IMAGEMANAGER.fn_Init(G.SYSTEM.CamCount, GRABBER.ImageWidth, G.SYSTEM.GrabHeight, 1);
             //IMAGEMANAGER.fn_Init(G.SYSTEM.CamCount, 16384, G.SYSTEM.GrabHeight, 1);
 
@@ -206,15 +210,10 @@ namespace KeocGrabber
             // Euresys: GenICam Remote으로 파라미터 제어 — 시리얼 카메라 통신 불필요
             if (!bEuresys)
             {
-                if (G.SYSTEM.CamCount >= 2)
+                // 카메라 대수만큼 시리얼 포트 연결 (0:Front 1:Rear 2:InSide 3:OutSide)
+                for (int i = 0; i < G.SYSTEM.CamCount; i++)
                 {
-                    CAMERA[0].fn_Init(G.SYSTEM.CamPort_Front);
-                    CAMERA[1].fn_Init(G.SYSTEM.CamPort_Rear);
-                }
-                if (G.SYSTEM.CamCount == 4)
-                {
-                    CAMERA[2].fn_Init(G.SYSTEM.CamPort_Inside);
-                    CAMERA[3].fn_Init(G.SYSTEM.CamPort_Outside);
+                    CAMERA[i].fn_Init(G.SYSTEM.fn_GetCamPort(i));
                 }
             }
 
@@ -224,7 +223,7 @@ namespace KeocGrabber
                 COMM2.fn_Init(G.SYSTEM.Master_IP2, G.SYSTEM.Master_Port2, ProtocallManager.ServerType.MASTER2);
             }
 
-            m_SafetyTimer.Interval += G.SYSTEM.GrabTimeout;
+            m_SafetyTimer.Interval = G.SYSTEM.GrabTimeout;
             m_SafetyTimer.Elapsed += OnSafetyTimeOut;
             m_SafetyTimer.AutoReset = false;
 
@@ -243,6 +242,9 @@ namespace KeocGrabber
             COMM.fn_Final();
             COMM2.fn_Final();
             
+            // 센서 I/O 폴링은 그래버 해제 전에 멈춘다(해제된 EGrabber 접근 방지).
+            SENSORIO.fn_Final();
+
             GIGABOARD.fn_Final();
             IMAGEMANAGER.fn_Final();
             //#if !DEBUG
@@ -281,10 +283,11 @@ namespace KeocGrabber
 
                 LIGHT.fn_LightOn_DAWOO();
 
-                if (G.SYSTEM.CamCount > 2)
+                // 하부(VIT) 조명 중 상시 점등 채널. 4캠 기준 인덱스 6,7과 동일한 상대 위치.
+                if (LIGHT.UseBottomLight)
                 {
-                    LIGHT.fn_LightOn(6);
-                    LIGHT.fn_LightOn(7);
+                    LIGHT.fn_LightOn(G.SYSTEM.CamCount + 2);
+                    LIGHT.fn_LightOn(G.SYSTEM.CamCount + 3);
                 }
 
                 GRABBER.fn_GrabStart();
@@ -307,10 +310,11 @@ namespace KeocGrabber
 
                     LIGHT.fn_LightOn_DAWOO();
 
-                    if (G.SYSTEM.CamCount > 2)
+                    // 하부(VIT) 조명 중 상시 점등 채널. 4캠 기준 인덱스 6,7과 동일한 상대 위치.
+                    if (LIGHT.UseBottomLight)
                     {
-                        LIGHT.fn_LightOn(6);
-                        LIGHT.fn_LightOn(7);
+                        LIGHT.fn_LightOn(G.SYSTEM.CamCount + 2);
+                        LIGHT.fn_LightOn(G.SYSTEM.CamCount + 3);
                     }
                     GRABBER.fn_GrabStart();
 
@@ -329,47 +333,37 @@ namespace KeocGrabber
 
         static public void SetCurrRecipe()
         {
+            int nCamCount = G.SYSTEM.CamCount;
+
             if (G.SYSTEM.UseEuresys)
             {
                 // Euresys: GenICam Remote 레이어로 파라미터 직접 제어
-                GRABBER.fn_SetGain(0, CURRRECIPE.CamGain1);
-                GRABBER.fn_SetGain(1, CURRRECIPE.CamGain2);
-                GRABBER.fn_SetExposureTime(0, CURRRECIPE.CamExposure1);
-                GRABBER.fn_SetExposureTime(1, CURRRECIPE.CamExposure2);
-                if (G.SYSTEM.CamCount == 4)
-                {
-                    GRABBER.fn_SetGain(2, CURRRECIPE.CamGain3);
-                    GRABBER.fn_SetGain(3, CURRRECIPE.CamGain4);
-                    GRABBER.fn_SetExposureTime(2, CURRRECIPE.CamExposure3);
-                    GRABBER.fn_SetExposureTime(3, CURRRECIPE.CamExposure4);
-                }
+                for (int i = 0; i < nCamCount; i++) GRABBER.fn_SetGain(i, CURRRECIPE.fn_GetCamGain(i));
+                for (int i = 0; i < nCamCount; i++) GRABBER.fn_SetExposureTime(i, CURRRECIPE.fn_GetCamExposure(i));
             }
             else
             {
                 // Matrox: VieworksCamera 시리얼 통신으로 파라미터 제어
-                CAMERA[0].fn_SetDigitalGain(CURRRECIPE.CamGain1);
-                CAMERA[1].fn_SetDigitalGain(CURRRECIPE.CamGain2);
-                CAMERA[0].fn_SetExposureTime(CURRRECIPE.CamExposure1);
-                CAMERA[1].fn_SetExposureTime(CURRRECIPE.CamExposure2);
-                if (G.SYSTEM.CamCount == 4)
+                for (int i = 0; i < nCamCount && i < CAMERA.Length; i++)
                 {
-                    CAMERA[2].fn_SetDigitalGain(CURRRECIPE.CamGain3);
-                    CAMERA[3].fn_SetDigitalGain(CURRRECIPE.CamGain4);
-                    CAMERA[2].fn_SetExposureTime(CURRRECIPE.CamExposure3);
-                    CAMERA[3].fn_SetExposureTime(CURRRECIPE.CamExposure4);
+                    if (CAMERA[i] == null) continue;
+                    CAMERA[i].fn_SetDigitalGain(CURRRECIPE.fn_GetCamGain(i));
+                    CAMERA[i].fn_SetExposureTime(CURRRECIPE.fn_GetCamExposure(i));
                 }
             }
 
-            LIGHT.fn_SetLightValue(0, CURRRECIPE.LightTop1);
-            LIGHT.fn_SetLightValue(1, CURRRECIPE.LightTop2);
-            if (G.SYSTEM.CamCount > 2)
+            // 상부 조명 = 카메라 대수만큼, 그 뒤 인덱스가 하부(VIT) 채널.
+            // 4캠 기준 : 0~3 상부(LightTop1~4), 4~7 하부(LightBot1~4) — 기존 매핑과 동일.
+            for (int i = 0; i < nCamCount; i++)
             {
-                LIGHT.fn_SetLightValue(2, CURRRECIPE.LightTop3);
-                LIGHT.fn_SetLightValue(3, CURRRECIPE.LightTop4);
-                LIGHT.fn_SetLightValue(4, CURRRECIPE.LightBot1);
-                LIGHT.fn_SetLightValue(5, CURRRECIPE.LightBot2);
-                LIGHT.fn_SetLightValue(6, CURRRECIPE.LightBot3);
-                LIGHT.fn_SetLightValue(7, CURRRECIPE.LightBot4);
+                LIGHT.fn_SetLightValue(i, CURRRECIPE.fn_GetLightTop(i));
+            }
+            if (LIGHT.UseBottomLight)
+            {
+                for (int i = 0; i < LightManager.BOTTOM_LIGHT_CH_COUNT; i++)
+                {
+                    LIGHT.fn_SetLightValue(nCamCount + i, CURRRECIPE.fn_GetLightBot(i));
+                }
             }
         }
 
@@ -436,18 +430,15 @@ namespace KeocGrabber
                         }
                         else
                         {
-                            // Light zero
+                            // Light zero (구성에 없는 채널은 어차피 적용되지 않으므로 전부 0으로)
                             G.CURRRECIPE.LightTop1 = 0;
                             G.CURRRECIPE.LightTop2 = 0;
-                            if (G.SYSTEM.CamCount > 2)
-                            { 
-                                G.CURRRECIPE.LightTop3 = 0;
-                                G.CURRRECIPE.LightTop4 = 0;
-                                G.CURRRECIPE.LightBot1 = 0;
-                                G.CURRRECIPE.LightBot2 = 0;
-                                G.CURRRECIPE.LightBot3 = 0;
-                                G.CURRRECIPE.LightBot4 = 0;
-                            }
+                            G.CURRRECIPE.LightTop3 = 0;
+                            G.CURRRECIPE.LightTop4 = 0;
+                            G.CURRRECIPE.LightBot1 = 0;
+                            G.CURRRECIPE.LightBot2 = 0;
+                            G.CURRRECIPE.LightBot3 = 0;
+                            G.CURRRECIPE.LightBot4 = 0;
                             string strMsg = $"Unkown File Name {strRecipeFile}";
                             //G.MAIN.Dispatcher.Invoke(DispatcherPriority.Normal, new Action(delegate ()
                             //{

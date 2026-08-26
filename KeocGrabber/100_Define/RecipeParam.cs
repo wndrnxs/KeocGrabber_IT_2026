@@ -64,6 +64,62 @@ namespace KeocGrabber
         public int LightBot5 { get { return nLightBot5; } set { nLightBot5 = value; OnPropertyChanged(nameof(LightBot5)); } }
         public int LightBot6 { get { return nLightBot6; } set { nLightBot6 = value; OnPropertyChanged(nameof(LightBot6)); } }
 
+        // ── 카메라/조명 인덱스 기반 조회 (카메라 대수 1~4 가변 대응) ──────────────
+
+        /// <summary>카메라 인덱스(0-base)별 게인</summary>
+        public float fn_GetCamGain(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return nCamGain1;
+                case 1: return nCamGain2;
+                case 2: return nCamGain3;
+                case 3: return nCamGain4;
+            }
+            return 0;
+        }
+
+        /// <summary>카메라 인덱스(0-base)별 노광시간</summary>
+        public float fn_GetCamExposure(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return nCamExposure1;
+                case 1: return nCamExposure2;
+                case 2: return nCamExposure3;
+                case 3: return nCamExposure4;
+            }
+            return 0;
+        }
+
+        /// <summary>상부 조명 인덱스(0-base)별 광량</summary>
+        public int fn_GetLightTop(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return nLightTop1;
+                case 1: return nLightTop2;
+                case 2: return nLightTop3;
+                case 3: return nLightTop4;
+            }
+            return 0;
+        }
+
+        /// <summary>하부 조명 채널(0-base)별 광량</summary>
+        public int fn_GetLightBot(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return nLightBot1;
+                case 1: return nLightBot2;
+                case 2: return nLightBot3;
+                case 3: return nLightBot4;
+                case 4: return nLightBot5;
+                case 5: return nLightBot6;
+            }
+            return 0;
+        }
+
         DataTable dtCropROI = new DataTable();
         public DataTable CropROI { get { return dtCropROI; } set { dtCropROI = value; OnPropertyChanged(nameof(CropROI)); } }
     }

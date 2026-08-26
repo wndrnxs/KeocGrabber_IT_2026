@@ -45,8 +45,66 @@ namespace KeocGrabber
         public string Cam3Grab { get { return strCam3State; } set { strCam3State = value; OnPropertyChanged(); } }
         public string Cam4Grab { get { return strCam4State; } set { strCam4State = value; OnPropertyChanged(); } }
 
+        public void SetGrabState(int idx, string strState)
+        {
+            switch (idx)
+            {
+                case 0: Cam1Grab = strState; break;
+                case 1: Cam2Grab = strState; break;
+                case 2: Cam3Grab = strState; break;
+                case 3: Cam4Grab = strState; break;
+            }
+        }
+
         double dTestBtnHeight = 0;
         public double TestBtnHeight { get { return dTestBtnHeight; } set { dTestBtnHeight = value; OnPropertyChanged(); } }
+
+        // ── Sensor I/O (Euresys 15pin D-Sub #3 = IIN11+, #12 = IIN11-) ──────────
+        // 센서 신호(스캔 시작 트리거)가 보드까지 들어오는지 확인하는 표시.
+        string strSensorTitle = "Sensor I/O";
+        public string SensorTitle { get { return strSensorTitle; } set { if (strSensorTitle == value) return; strSensorTitle = value; OnPropertyChanged(); } }
+
+        bool bSensor1On = false;
+        bool bSensor2On = false;
+        bool bSensor3On = false;
+        bool bSensor4On = false;
+
+        public bool Sensor1On { get { return bSensor1On; } set { if (bSensor1On == value) return; bSensor1On = value; OnPropertyChanged(); } }
+        public bool Sensor2On { get { return bSensor2On; } set { if (bSensor2On == value) return; bSensor2On = value; OnPropertyChanged(); } }
+        public bool Sensor3On { get { return bSensor3On; } set { if (bSensor3On == value) return; bSensor3On = value; OnPropertyChanged(); } }
+        public bool Sensor4On { get { return bSensor4On; } set { if (bSensor4On == value) return; bSensor4On = value; OnPropertyChanged(); } }
+
+        // Info = 램프 옆 짧은 표기("CAM1 12"), Detail = 마우스 오버 시 상세(검출 시각/펄스 폭)
+        string strSensor1Info = "-";
+        string strSensor2Info = "-";
+        string strSensor3Info = "-";
+        string strSensor4Info = "-";
+
+        public string Sensor1Info { get { return strSensor1Info; } set { if (strSensor1Info == value) return; strSensor1Info = value; OnPropertyChanged(); } }
+        public string Sensor2Info { get { return strSensor2Info; } set { if (strSensor2Info == value) return; strSensor2Info = value; OnPropertyChanged(); } }
+        public string Sensor3Info { get { return strSensor3Info; } set { if (strSensor3Info == value) return; strSensor3Info = value; OnPropertyChanged(); } }
+        public string Sensor4Info { get { return strSensor4Info; } set { if (strSensor4Info == value) return; strSensor4Info = value; OnPropertyChanged(); } }
+
+        string strSensor1Detail = "";
+        string strSensor2Detail = "";
+        string strSensor3Detail = "";
+        string strSensor4Detail = "";
+
+        public string Sensor1Detail { get { return strSensor1Detail; } set { if (strSensor1Detail == value) return; strSensor1Detail = value; OnPropertyChanged(); } }
+        public string Sensor2Detail { get { return strSensor2Detail; } set { if (strSensor2Detail == value) return; strSensor2Detail = value; OnPropertyChanged(); } }
+        public string Sensor3Detail { get { return strSensor3Detail; } set { if (strSensor3Detail == value) return; strSensor3Detail = value; OnPropertyChanged(); } }
+        public string Sensor4Detail { get { return strSensor4Detail; } set { if (strSensor4Detail == value) return; strSensor4Detail = value; OnPropertyChanged(); } }
+
+        public void SetSensor(int idx, bool bOn, string strInfo, string strDetail)
+        {
+            switch (idx)
+            {
+                case 0: Sensor1On = bOn; Sensor1Info = strInfo; Sensor1Detail = strDetail; break;
+                case 1: Sensor2On = bOn; Sensor2Info = strInfo; Sensor2Detail = strDetail; break;
+                case 2: Sensor3On = bOn; Sensor3Info = strInfo; Sensor3Detail = strDetail; break;
+                case 3: Sensor4On = bOn; Sensor4Info = strInfo; Sensor4Detail = strDetail; break;
+            }
+        }
 
         bool bIsGrabStop = true;
         public bool IsGrabStop { get { return bIsGrabStop; } set { bIsGrabStop = value; OnPropertyChanged(); } }
@@ -86,19 +144,39 @@ namespace KeocGrabber
             }));
         }
 
-        public void Update_IOStatus(bool aux6, bool aux7)
+        /// <summary>
+        /// 센서 I/O 표시 갱신. (MainWindow의 500ms 타이머에서 호출)
+        /// 신호는 짧게 지나가므로 SensorIOManager가 일정 시간(LAMP_HOLD_MS) 동안 램프를 잡아 준다.
+        /// </summary>
+        public void Update_IOStatus()
         {
-            // AUX 6 상태 표시
-            //if (aux6)
-            //    IO_CAM1.Fill = Brushes.LimeGreen;
-            //else
-            //    IO_CAM1.Fill = Brushes.Gray;
+            bool bRun = G.SENSORIO.IsRunning;
+            datacontext.SensorTitle = bRun
+                ? $"SENSOR {G.GRABBER.fn_GetSensorLine(0)}"
+                : "SENSOR OFF";
 
-            // AUX 7 상태 표시
-            //if (aux7)
-            //    IO_CAM2.Fill = Brushes.LimeGreen;
-            //else
-            //    IO_CAM2.Fill = Brushes.Gray;
+            for (int i = 0; i < Define.CAM_COUNT; i++)
+            {
+                if (!bRun)
+                {
+                    datacontext.SetSensor(i, false, $"CAM{i + 1} -", "Sensor I/O 사용 안 함");
+                    continue;
+                }
+                datacontext.SetSensor(i, G.SENSORIO.fn_IsSignalOn(i),
+                                         $"CAM{i + 1}", /*{G.SENSORIO.fn_GetCount(i)}*/
+                                         G.SENSORIO.fn_GetDetailText(i));
+            }
+        }
+
+        private void SensorIO_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount != 2) return;
+
+            if (G.USERLEVEL != EN_AUTHORITY.EN_OPERATOR)
+            {
+                G.SENSORIO.fn_ResetCount();
+                Update_IOStatus();
+            }
         }
 
         private void bn_testgrab_click(object sender, RoutedEventArgs e)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Euresys.EGrabber;
 using OpenCvSharp;
@@ -16,6 +17,7 @@ namespace KeocGrabber
 
         int m_nInterfaceIndex;
         int m_nDeviceIndex;
+        int m_nCameraIndex;   // GrabberManager 리스트상의 위치(0:Front 1:Rear 2:InSide 3:OutSide) — 카메라별 설정(트리거 지연 등) 조회에 사용
 
         int m_nWidth;
         int m_nHeight;
@@ -38,9 +40,24 @@ namespace KeocGrabber
         const ulong POP_TIMEOUT_MS    = 1000;    // 짧게: m_bThreadRunning=false 후 스레드가 ~1s 내 종료(stop 응답성 ↑, 중복 pop 방지)
         const ulong LIVE_BUFFER_HEIGHT = 256;
         const ulong GRAB_CHUNK_HEIGHT  = 1024;   // production: 1024라인씩 받아 ImageManager가 GrabHeight까지 누적
-        // 현장조건: 200mm/s 물체 스캔용 라인주기(=11050Hz).
-        // 라인주기 = X픽셀분해능 / 속도 라야 정사각 비율. 늘어짐 보정 필요시 = 현주기 × (정사각물체 결과 H/W).
-        const double TARGET_LINE_PERIOD_US = 90.5;
+        // 현장조건: 200mm/s 물체 스캔용 라인레이트. 기본 11049.7Hz(=라인주기 90.5us).
+        // 라인주기 = X픽셀분해능 / 속도 라야 정사각 비율. 늘어짐 보정 필요시 = 현재값 × (정사각물체 결과 H/W).
+        // 카메라(렌즈·센서)마다 값이 다를 수 있어 SystemParam.CamLineRate1~4(Hz)로 카메라별로 둔다.
+        // fn_SetExternalTrigger()가 매 grab 시작마다 자기 카메라 인덱스로 최신값을 읽으므로,
+        // Setup 화면에서 값을 바꾸면 재시작 없이 다음 grab부터 바로 반영된다.
+
+        // ── 센서 입력 라인 (15pin D-Sub #3 = IIN11+, #12 = IIN11-) ──────────────
+        // 이 라인은 fn_SetExternalTrigger()에서 LIN1(스캔 시작 트리거)으로 매핑된다.
+        // 여기서는 같은 물리 라인의 현재 레벨을 읽어 UI 램프/카운터로 보여준다(배선·센서 점검용).
+        string m_strSensorLine = "IIN11";
+        string m_strDelayTool = "DEL1";     // 센서 ON → 스캔 시작 지연에 쓸 IOToolbox 블록
+        volatile bool m_bSensorReadable = true;   // LineStatus 미지원이면 false로 내려 폴링 중단
+        bool m_bLastSensorLevel = false;
+        int m_nSensorFailCount = 0;
+        readonly object m_lockSensor = new object();
+        const int SENSOR_FAIL_LIMIT = 10;         // 연속 실패 한계(초과 시 모니터링 중단)
+
+        public string SensorLine { get { return m_strSensorLine; } }
 
         public int Width { get { return m_nWidth; } }
         public int Height { get { return m_nHeight; } }
@@ -49,12 +66,20 @@ namespace KeocGrabber
         public bool IsInit { get { return m_bIsInit; } }
         public bool IsGrabbing { get { return m_bIsGrabbing; } }
 
-        public void fn_Init(EGrabberInfo info)
+        public void fn_Init(EGrabberInfo info, int camIndex)
         {
             try
             {
                 m_nInterfaceIndex = info.InterfaceIndex;
                 m_nDeviceIndex    = info.DeviceIndex;
+                m_nCameraIndex    = camIndex;
+
+                if (!string.IsNullOrWhiteSpace(G.SYSTEM.SensorInputLine))
+                    m_strSensorLine = G.SYSTEM.SensorInputLine.Trim();
+                if (!string.IsNullOrWhiteSpace(G.SYSTEM.SensorDelayTool))
+                    m_strDelayTool = G.SYSTEM.SensorDelayTool.Trim();
+                m_bSensorReadable  = true;
+                m_nSensorFailCount = 0;
 
                 _egrabber = new EGrabber(info, DEVICE_ACCESS_FLAGS.DEVICE_ACCESS_CONTROL);
 
@@ -84,8 +109,14 @@ namespace KeocGrabber
         {
             if (m_bIsGrabbing) fn_GrabStop();
 
-            try { _egrabber?.Dispose(); } catch { }
-            _egrabber = null;
+            // 센서 폴링 스레드가 읽는 중에 Dispose되지 않도록 같은 락으로 보호한다.
+            lock (m_lockSensor)
+            {
+                m_bSensorReadable = false;
+
+                try { _egrabber?.Dispose(); } catch { }
+                _egrabber = null;
+            }
 
             m_bIsInit = false;
             delLog?.Invoke($"Euresys Final. IF:{m_nInterfaceIndex}");
@@ -307,21 +338,30 @@ namespace KeocGrabber
         private void fn_SetExternalTrigger()
         {
             // ── 1) Interface: IIN11(Pin3+/Pin12-) 물리핀 → LIN1 논리라인 매핑 ──
+            //   라인 이름은 SystemParam.SensorInputLine(기본 "IIN11")과 동일하게 쓴다.
+            //   → UI의 센서 I/O 램프가 실제 트리거 소스와 항상 같은 라인을 본다.
             try
             {
                 _egrabber.Interface.Set<string>("LineInputToolSelector", "LIN1");
-                _egrabber.Interface.Set<string>("LineInputToolSource", "IIN11");
+                _egrabber.Interface.Set<string>("LineInputToolSource", m_strSensorLine);
                 _egrabber.Interface.Set<string>("LineInputToolActivation", "RisingEdge");
             }
             catch (Exception ex) { G.WriteLog($"Euresys Interface LineInput set fail: {ex.Message}", true); }
 
+            // ── 1-1) 센서 ON → 스캔 시작 지연 (IOToolbox DelayTool) ──
+            //   지연을 쓰면 시퀀스 시작 트리거를 LIN1이 아니라 지연 블록 출력에서 받는다.
+            //   실패하면 LIN1을 그대로 써서 기존 동작(지연 없음)을 유지한다.
+            string strSeqTriggerSource = fn_SetupTriggerDelay(G.SYSTEM.fn_GetSensorTriggerDelay(m_nCameraIndex)) ?? "LIN1";
+
             // ── 2) Camera(Remote): 보드 CoaXPress 라인트리거로 라인 스캔 ──
             //   이 카메라는 순수 라인스캔(FrameStart 없음, LineStart 트리거만 존재)이므로
             //   라인마다 보드가 보내는 CXP 트리거를 받아 1라인씩 스캔한다.
-            //   라인주기는 TARGET_LINE_PERIOD_US(현장조건+늘어짐 보정). 카메라가 이 속도를 내려면 노출시간 < 라인주기 여야 한다.
-            //   노출이 라인주기보다 길면 카메라 라인레이트가 제한돼 보드가 더 빨라 오버런→일부 줄에서 멈춘다.
+            //   라인주기는 카메라별 목표 라인레이트(현장조건+늘어짐 보정)에서 나온다. 카메라가 이 속도를
+            //   내려면 노출시간 < 라인주기 여야 한다. 노출이 라인주기보다 길면 카메라 라인레이트가
+            //   제한돼 보드가 더 빨라 오버런→일부 줄에서 멈춘다.
             double dLineRate = 9600.0;
-            double targetRate = 1e6 / TARGET_LINE_PERIOD_US;   // 목표 라인레이트(Hz)
+            double targetRate = G.SYSTEM.fn_GetCamLineRate(m_nCameraIndex);   // 목표 라인레이트(Hz), 카메라별
+            double targetLinePeriodUs = 1e6 / targetRate;
             try
             {
                 try { _egrabber.Remote.Set<string>("AcquisitionMode", "Continuous"); } catch { }
@@ -341,14 +381,14 @@ namespace KeocGrabber
                 try { _egrabber.Remote.Set<string>("ExposureMode", "Timed"); } catch { }
 
                 // 노출시간을 라인주기에 맞게 캡(여유 8us) → 카메라가 목표 라인레이트를 낼 수 있게 함
-                double maxExp = TARGET_LINE_PERIOD_US - 8.0;
+                double maxExp = targetLinePeriodUs - 8.0;
                 try
                 {
                     double curExp = _egrabber.Remote.Get<double>("ExposureTime");
                     if (curExp > maxExp)
                     {
                         _egrabber.Remote.Set<double>("ExposureTime", maxExp);
-                        G.WriteLog($"Euresys 노출시간 {curExp:F1}->{maxExp:F1}us 제한 (라인주기 {TARGET_LINE_PERIOD_US}us 달성)");
+                        G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 노출시간 {curExp:F1}->{maxExp:F1}us 제한 (라인주기 {targetLinePeriodUs:F1}us 달성)");
                     }
                 }
                 catch { }
@@ -362,7 +402,7 @@ namespace KeocGrabber
 
             // ── 3) Device(보드 CIC): 센서(LIN1) 1펄스 → N개 라인 시퀀스 ──
             //   • CycleTriggerSource=Immediate + CycleMinimumPeriod : 시퀀스 내 라인을
-            //     내부 클럭(TARGET_LINE_PERIOD_US)으로 자동 생성 (cycle 1개 = line 1개)
+            //     내부 클럭(카메라별 목표 라인주기)으로 자동 생성 (cycle 1개 = line 1개)
             //   • StartOfSequenceTriggerSource=LIN1 : 센서 펄스가 시퀀스(=1 이미지) 시작
             //   • EndOfSequenceTriggerSource=SequenceLength, SequenceLength=N : N라인 후 종료
             try
@@ -372,15 +412,17 @@ namespace KeocGrabber
                 try { _egrabber.Device.Set<string>("CycleTriggerSource", "Immediate"); }
                 catch (Exception ex) { G.WriteLog($"Euresys CycleTriggerSource set fail: {ex.Message}", true); }
 
-                // 보드 라인트리거 주기: 카메라가 목표를 낼 수 있으면 정확히 TARGET_LINE_PERIOD_US 유지,
+                // 보드 라인트리거 주기: 카메라가 목표를 낼 수 있으면 목표 라인주기 그대로 유지,
                 // 못 내면 카메라 실제속도×1.03(오버런 방지, 전체 라인 우선).
                 double dCyclePeriodUs = (dLineRate >= targetRate * 0.99)
-                                      ? TARGET_LINE_PERIOD_US
+                                      ? targetLinePeriodUs
                                       : (1e6 / dLineRate) * 1.03;
                 try { _egrabber.Device.Set<double>("CycleMinimumPeriod", dCyclePeriodUs); }
                 catch (Exception ex) { G.WriteLog($"Euresys CycleMinimumPeriod set fail: {ex.Message}", true); }
 
-                try { _egrabber.Device.Set<string>("StartOfSequenceTriggerSource", "LIN1"); }
+                G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 라인레이트 목표:{targetRate:F1}Hz 카메라:{dLineRate:F1}Hz 적용주기:{dCyclePeriodUs:F2}us");
+
+                try { _egrabber.Device.Set<string>("StartOfSequenceTriggerSource", strSeqTriggerSource); }
                 catch (Exception ex) { G.WriteLog($"Euresys StartOfSequenceTriggerSource set fail: {ex.Message}", true); }
 
                 try { _egrabber.Device.Set<string>("EndOfSequenceTriggerSource", "SequenceLength"); }
@@ -390,6 +432,232 @@ namespace KeocGrabber
                 catch (Exception ex) { G.WriteLog($"Euresys SequenceLength set fail: {ex.Message}", true); }
             }
             catch (Exception ex) { G.WriteLog($"Euresys Device sequence set fail: {ex.Message}", true); }
+        }
+
+        // --- 센서 트리거 지연 (Interface > IOToolbox > DelayTool) ---
+
+        /// <summary>
+        /// 센서 신호(LIN1)를 지연 블록에 통과시켜, 지연된 출력을 시퀀스 시작 트리거로 쓴다.
+        ///
+        ///   LIN1 ──▶ DelayTool(DEL1) ──▶ StartOfSequenceTriggerSource
+        ///
+        /// DelayToolDelayValue는 시간이 아니라 DelayToolClockSource의 "틱 수"이므로,
+        /// 요청 지연을 담을 수 있는 가장 분해능 높은 클럭을 골라 틱으로 환산한다.
+        /// 설정 후 readback으로 실제 반영 여부를 확인하고, 실패하면 null을 돌려
+        /// 호출측이 기존 경로(LIN1 직결 = 지연 없음)를 그대로 쓰게 한다.
+        /// </summary>
+        /// <param name="nDelayUs">지연 시간(us). 0 이하면 지연 사용 안 함.</param>
+        /// <returns>시퀀스 시작 트리거로 쓸 소스 이름. 지연 미사용/실패 시 null.</returns>
+        private string fn_SetupTriggerDelay(int nDelayUs)
+        {
+            if (nDelayUs <= 0)
+            {
+                // 이전 설정이 남아 있으면 끊어 둔다(지연 없이 동작해야 하므로).
+                try
+                {
+                    _egrabber.Interface.Set<string>("DelayToolSelector", m_strDelayTool);
+                    _egrabber.Interface.Set<string>("DelayToolSource1", "NONE");
+                }
+                catch { }
+                return null;
+            }
+
+            try
+            {
+                _egrabber.Interface.Set<string>("DelayToolSelector", m_strDelayTool);
+                _egrabber.Interface.Set<string>("DelayToolSource1", "LIN1");
+
+                // 지연 출력을 시퀀스 시작 트리거로 받을 수 있는지 먼저 확인.
+                string strSource = fn_FindDelayTriggerSource();
+                if (strSource == null)
+                {
+                    G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 트리거 지연: StartOfSequenceTriggerSource에 {m_strDelayTool} 출력이 없음 → 지연 미적용 " +
+                               $"(후보: {string.Join(",", fn_DeviceEnumEntries("StartOfSequenceTriggerSource"))})", true);
+                    return null;
+                }
+
+                // 클럭 후보를 주기(us) 오름차순 = 분해능 높은 순으로 시도.
+                var clocks = fn_GetClockCandidates();
+                if (clocks.Count == 0)
+                {
+                    G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 트리거 지연: 사용 가능한 DelayToolClockSource를 해석하지 못함 → 지연 미적용 " +
+                               $"(후보: {string.Join(",", fn_InterfaceEnumEntries("DelayToolClockSource"))})", true);
+                    return null;
+                }
+
+                foreach (var clk in clocks)
+                {
+                    long nTicks = (long)Math.Round(nDelayUs / clk.Value);
+                    if (nTicks < 1) continue;   // 이 클럭으로는 표현 불가(너무 느린 클럭)
+
+                    try
+                    {
+                        _egrabber.Interface.Set<string>("DelayToolClockSource", clk.Key);
+                        _egrabber.Interface.Set<long>("DelayToolDelayValue", nTicks);
+
+                        // 레지스터 폭을 넘으면 값이 잘리므로 반드시 readback으로 확인.
+                        long nReadback = _egrabber.Interface.Get<long>("DelayToolDelayValue");
+                        if (nReadback != nTicks) continue;
+
+                        double dActualUs = nReadback * clk.Value;
+                        G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 트리거 지연 설정: {dActualUs:F1}us (요청 {nDelayUs}us, " +
+                                   $"{m_strDelayTool} clk:{clk.Key} {nReadback}tick, 분해능 {clk.Value:F2}us) → {strSource}");
+                        return strSource;
+                    }
+                    catch { /* 다음 클럭으로 */ }
+                }
+
+                G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 트리거 지연: {nDelayUs}us를 표현할 수 있는 클럭이 없음 → 지연 미적용", true);
+            }
+            catch (Exception ex)
+            {
+                G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 트리거 지연 설정 실패 → 지연 미적용: {ex.Message}", true);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// StartOfSequenceTriggerSource 열거값 중 지연 블록의 첫 번째 출력을 찾는다.
+        /// (블록당 출력이 2개이므로 "DEL1"/"DEL11" 순으로 우선 매칭)
+        /// </summary>
+        private string fn_FindDelayTriggerSource()
+        {
+            string[] entries = fn_DeviceEnumEntries("StartOfSequenceTriggerSource");
+
+            foreach (var e in entries) if (e == m_strDelayTool) return e;
+            foreach (var e in entries) if (e == m_strDelayTool + "1") return e;
+            foreach (var e in entries) if (e.StartsWith(m_strDelayTool, StringComparison.OrdinalIgnoreCase)) return e;
+            return null;
+        }
+
+        /// <summary>
+        /// DelayToolClockSource 열거값을 (이름, 1틱당 us)로 해석해 분해능 높은 순으로 정렬한다.
+        /// 이름 형식은 보드/드라이버 버전에 따라 "MHz100" / "100MHz" 등으로 다를 수 있어 둘 다 인식한다.
+        /// </summary>
+        // Coaxlink IOToolbox 클럭 이름은 두 형식이 관측된다.
+        //   1) 주기 직접 표기: "TIME8NS", "TIME200NS", "TIME1US" (실제 이 보드가 사용하는 형식)
+        //   2) 주파수 표기: "MHz100" 등 (드라이버/보드 버전에 따라 있을 수 있어 폴백으로 유지)
+        // 두 형식 모두 시도해 1틱당 us(주기)로 통일해 반환한다.
+        private static readonly System.Text.RegularExpressions.Regex RE_CLOCK_PERIOD =
+            new System.Text.RegularExpressions.Regex(
+                @"^TIME(?<num>\d+(?:\.\d+)?)(?<unit>NS|US|MS|S)$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        private static readonly System.Text.RegularExpressions.Regex RE_CLOCK_FREQ =
+            new System.Text.RegularExpressions.Regex(
+                @"(?:(?<unit>MHz|kHz|Hz)\s*(?<num>\d+(?:\.\d+)?))|(?:(?<num2>\d+(?:\.\d+)?)\s*(?<unit2>MHz|kHz|Hz))",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        private List<KeyValuePair<string, double>> fn_GetClockCandidates()
+        {
+            var list = new List<KeyValuePair<string, double>>();
+
+            foreach (var name in fn_InterfaceEnumEntries("DelayToolClockSource"))
+            {
+                double dPeriodUs;
+
+                var mPeriod = RE_CLOCK_PERIOD.Match(name);
+                if (mPeriod.Success)
+                {
+                    double dNum;
+                    if (!double.TryParse(mPeriod.Groups["num"].Value, out dNum) || dNum <= 0) continue;
+
+                    string strUnit = mPeriod.Groups["unit"].Value;
+                    dPeriodUs = strUnit.Equals("NS", StringComparison.OrdinalIgnoreCase) ? dNum / 1000.0
+                              : strUnit.Equals("US", StringComparison.OrdinalIgnoreCase) ? dNum
+                              : strUnit.Equals("MS", StringComparison.OrdinalIgnoreCase) ? dNum * 1000.0
+                              : dNum * 1e6;   // S
+                }
+                else
+                {
+                    var mFreq = RE_CLOCK_FREQ.Match(name);
+                    if (!mFreq.Success) continue;   // NONE, LINx, QDCx 등 시간 클럭이 아닌 항목은 제외
+
+                    string strNum  = mFreq.Groups["num"].Success  ? mFreq.Groups["num"].Value  : mFreq.Groups["num2"].Value;
+                    string strUnit = mFreq.Groups["unit"].Success ? mFreq.Groups["unit"].Value : mFreq.Groups["unit2"].Value;
+
+                    double dNum;
+                    if (!double.TryParse(strNum, out dNum) || dNum <= 0) continue;
+
+                    double dHz = strUnit.Equals("MHz", StringComparison.OrdinalIgnoreCase) ? dNum * 1e6
+                               : strUnit.Equals("kHz", StringComparison.OrdinalIgnoreCase) ? dNum * 1e3
+                               : dNum;
+                    dPeriodUs = 1e6 / dHz;
+                }
+
+                list.Add(new KeyValuePair<string, double>(name, dPeriodUs));   // 1틱당 us
+            }
+
+            list.Sort((a, b) => a.Value.CompareTo(b.Value));   // 분해능 높은(주기 짧은) 순
+            return list;
+        }
+
+        private string[] fn_InterfaceEnumEntries(string feature)
+        {
+            try { return _egrabber.Interface.EnumEntries(feature, true); }
+            catch { return new string[0]; }
+        }
+
+        private string[] fn_DeviceEnumEntries(string feature)
+        {
+            try { return _egrabber.Device.EnumEntries(feature, true); }
+            catch { return new string[0]; }
+        }
+
+        // --- 센서 입력 I/O (Interface 레이어) ---
+
+        /// <summary>
+        /// 센서 입력 라인(기본 IIN11 = 15pin D-Sub #3/#12)의 현재 레벨을 읽는다.
+        /// Interface 모듈의 LineSelector로 라인을 고른 뒤 LineStatus를 읽는 방식이라
+        /// grab 중에도(트리거를 가로채지 않고) 신호 유무만 확인할 수 있다.
+        /// </summary>
+        /// <param name="bLevel">읽은 레벨. 실패 시 마지막으로 성공한 값.</param>
+        /// <returns>읽기 성공 여부</returns>
+        public bool fn_TryGetSensorInput(out bool bLevel)
+        {
+            lock (m_lockSensor)
+            {
+                bLevel = m_bLastSensorLevel;
+                if (!m_bIsInit || !m_bSensorReadable || _egrabber == null) return false;
+
+                try
+                {
+                    _egrabber.Interface.Set<string>("LineSelector", m_strSensorLine);
+
+                    bool bRead;
+                    try { bRead = _egrabber.Interface.Get<bool>("LineStatus"); }
+                    catch { bRead = fn_ParseBool(_egrabber.Interface.Get<string>("LineStatus")); }
+
+                    m_bLastSensorLevel = bRead;
+                    m_nSensorFailCount = 0;
+                    bLevel = bRead;
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    // grab 스레드가 pop 중이면 보드 접근이 잠깐 막힌다("EGrabber is busy in another thread").
+                    // 일시적인 상황이므로 마지막 값을 유지하고 다음 폴링에서 재시도한다.
+                    if (ex.Message.IndexOf("busy", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
+                    // 그 외 오류(미지원 feature 등)가 연속으로 나면 로그 폭주를 막기 위해 모니터링을 중단한다.
+                    if (++m_nSensorFailCount >= SENSOR_FAIL_LIMIT)
+                    {
+                        m_bSensorReadable = false;
+                        G.WriteLog($"Euresys 센서 I/O 읽기 실패 → 모니터링 중단 (IF:{m_nInterfaceIndex} Line:{m_strSensorLine}): {ex.Message}", true);
+                    }
+                    return false;
+                }
+            }
+        }
+
+        private static bool fn_ParseBool(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return false;
+            string v = value.Trim();
+            return v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase)
+                            || v.Equals("on", StringComparison.OrdinalIgnoreCase)
+                            || v.Equals("high", StringComparison.OrdinalIgnoreCase)
+                            || v.Equals("active", StringComparison.OrdinalIgnoreCase);
         }
 
         private void fn_ExecuteRemote(string command)

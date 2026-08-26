@@ -86,7 +86,10 @@ namespace KeocGrabber
             }
         }
 
-        int[] m_nBufferCounter = new int[G.SYSTEM.CamCount];
+        // 주의: 이 필드는 G의 정적 초기화(=ImageGrabber.xml 로드 전) 시점에 만들어진다.
+        //       그때 G.SYSTEM.CamCount는 아직 기본값이므로 CamCount로 잡으면 4캠 구성에서
+        //       인덱스를 벗어난다. 지원 최대 대수(Define.CAM_COUNT)로 고정 확보한다.
+        int[] m_nBufferCounter = new int[Define.CAM_COUNT];
 
         // ─── Euresys 초기화 ─────────────────────────────────────────────────────
 
@@ -110,7 +113,8 @@ namespace KeocGrabber
                     EGrabberInfo info = m_discovery.GetGrabber(i);
                     EuresysGrabber grabber = new EuresysGrabber();
                     grabber.OnLog = fn_LogWrite;
-                    grabber.fn_Init(info);
+                    // 카메라 인덱스 = 성공 시 들어갈 리스트 위치. Cam1~4/CamExposure1~4와 동일한 인덱싱.
+                    grabber.fn_Init(info, m_listEuresys.Count);
                     if (grabber.IsInit)
                         m_listEuresys.Add(grabber);
                 }
@@ -285,7 +289,7 @@ namespace KeocGrabber
             }
             else
             {
-                m_nBufferCounter[idx]++;
+                if (idx >= 0 && idx < m_nBufferCounter.Length) m_nBufferCounter[idx]++;
                 if (G.IMAGEMANAGER?.IsImageCompalte[idx] == false)
                     G.IMAGEMANAGER?.AttachImage(idx, matImg, milindex);
             }
@@ -308,12 +312,16 @@ namespace KeocGrabber
             return idx >= 0 && idx < G.CAMERA.Length && G.CAMERA[idx] != null && G.CAMERA[idx].IsConnected;
         }
 
+        // 실제로 초기화된 그래버 수. m_nBoardCount가 리스트보다 크면 인덱스를 벗어나므로
+        // 항상 이 값으로 순회한다. (요청 대수 > 발견 대수인 구성 대비)
+        private int GrabberCount { get { return m_bIsEuresys ? m_listEuresys.Count : m_listMatrox.Count; } }
+
         public void fn_GrabStart()
         {
             m_bGrabSetup = false;
-            for (int i = 0; i < m_nBoardCount; i++)
+            for (int i = 0; i < GrabberCount; i++)
             {
-                m_nBufferCounter[i] = 0;
+                if (i < m_nBufferCounter.Length) m_nBufferCounter[i] = 0;
                 if (m_bIsEuresys) m_listEuresys[i].fn_GrabStart();
                 else m_listMatrox[i].fn_GrabStart();
             }
@@ -321,7 +329,7 @@ namespace KeocGrabber
 
         public void fn_GrabStop()
         {
-            for (int i = 0; i < m_nBoardCount; i++)
+            for (int i = 0; i < GrabberCount; i++)
             {
                 if (m_bIsEuresys) m_listEuresys[i].fn_GrabStop();
                 else m_listMatrox[i].fn_GrabStop();
@@ -405,6 +413,59 @@ namespace KeocGrabber
             if (!m_bIsEuresys && boardIdx >= 0 && boardIdx < m_listMatrox.Count)
                 return m_listMatrox[boardIdx].fn_GetSpecificIO(ioAttribute);
             return false;
+        }
+
+        // ─── 센서 입력 I/O ───────────────────────────────────────────────────────
+        // Euresys : Interface 모듈의 IIN11(15pin D-Sub #3=+, #12=-) 레벨을 직접 읽는다.
+        //           이 라인이 곧 스캔 시작 트리거(LIN1) 소스이므로, 램프가 켜졌는데
+        //           스캔이 안 되면 보드 이후(트리거 설정/카메라) 문제로 좁힐 수 있다.
+        // Matrox  : 현재 미지원. 검증 장비 확보 후 아래 TODO 위치에 AUX IO를 연결한다.
+
+        // 센서 I/O 모니터링 지원 여부 (현재 Euresys 전용)
+        public bool IsSensorIoSupported { get { return m_bIsEuresys; } }
+
+        /// <summary>
+        /// 센서 입력 라인의 현재 레벨을 읽는다.
+        /// </summary>
+        /// <param name="idx">카메라(그래버) 인덱스</param>
+        /// <param name="bLevel">읽은 레벨. 실패 시 false 또는 마지막 성공값.</param>
+        /// <returns>읽기 성공 여부</returns>
+        public bool fn_TryGetSensorInput(int idx, out bool bLevel)
+        {
+            bLevel = false;
+
+            if (m_bIsEuresys)
+            {
+                if (idx >= 0 && idx < m_listEuresys.Count)
+                    return m_listEuresys[idx].fn_TryGetSensorInput(out bLevel);
+                return false;
+            }
+
+            // TODO(Matrox) : 테스트 환경 확보 후 아래처럼 AUX IO를 센서 입력으로 매핑한다.
+            //                실제 사용 핀은 배선 확인 후 결정(M_AUX_IO0 ~ M_AUX_IO7).
+            //   bLevel = fn_GetSpecificIO(idx, MIL.M_AUX_IO6);
+            //   return true;
+            return false;
+        }
+
+        /// <summary>센서 라인 이름 (UI 표기용)</summary>
+        public string fn_GetSensorLine(int idx)
+        {
+            if (m_bIsEuresys && idx >= 0 && idx < m_listEuresys.Count)
+                return m_listEuresys[idx].SensorLine;
+            return G.SYSTEM.SensorInputLine;
+        }
+
+        /// <summary>
+        /// 센서 라인이 물려 있는 물리 보드(Interface) 인덱스.
+        /// 한 보드에 여러 카메라(Device)가 붙으면 I/O 커넥터는 하나이므로,
+        /// 이 값이 같은 카메라들은 동일한 센서 신호를 공유한다.
+        /// </summary>
+        public int fn_GetSensorInterfaceIndex(int idx)
+        {
+            if (m_bIsEuresys)
+                return idx >= 0 && idx < m_listEuresys.Count ? m_listEuresys[idx].BoardIndex : -1;
+            return idx >= 0 && idx < m_listMatrox.Count ? idx : -1;
         }
     }
 }

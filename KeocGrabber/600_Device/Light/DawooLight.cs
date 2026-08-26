@@ -25,6 +25,9 @@ namespace KeocGrabber
 
         int m_nRecieveTimeout = 3000;
 
+        // 상부 조명 컨트롤러 최대 대수(포트/버퍼 배열 크기)
+        public const int MAX_CTRL_COUNT = 4;
+
         bool[] m_bIsRecv = new bool[4];
 
         const int MAX_CHANNEL = 3;
@@ -46,29 +49,18 @@ namespace KeocGrabber
         /// </summary>
         public void fn_InitPort()
         {
-            bool[] bRet = new bool[G.SYSTEM.CamCount];
-            for (int i = 0; i < G.SYSTEM.CamCount; i++)
+            // 상부 조명 컨트롤러는 카메라 대수만큼 사용한다. (최대 MAX_CTRL_COUNT)
+            Action<byte[]>[] delRecv = { RecvData1, RecvData2, RecvData3, RecvData4 };
+
+            int nCount = Math.Min(G.SYSTEM.CamCount, MAX_CTRL_COUNT);
+            bool[] bRet = new bool[nCount];
+
+            for (int i = 0; i < nCount; i++)
             {
                 m_listComm.Add(new SerialComm());
 
-                switch (i) {
-                    case 0:
-                        bRet[0] = m_listComm[0].Open(G.SYSTEM.LightPortTop1, 9600, 8, Parity.None, StopBits.One);
-                        m_listComm[0].ReciveDataevent = RecvData1;
-                        break;
-                    case 1:
-                        bRet[1] = m_listComm[1].Open(G.SYSTEM.LightPortTop2, 9600, 8, Parity.None, StopBits.One);
-                        m_listComm[1].ReciveDataevent = RecvData2;
-                        break;
-                    case 2:
-                        bRet[2] = m_listComm[2].Open(G.SYSTEM.LightPortTop3, 9600, 8, Parity.None, StopBits.One);
-                        m_listComm[2].ReciveDataevent = RecvData3;
-                        break;
-                    case 3:
-                        bRet[3] = m_listComm[3].Open(G.SYSTEM.LightPortTop4, 9600, 8, Parity.None, StopBits.One);
-                        m_listComm[3].ReciveDataevent = RecvData4;
-                        break;
-                }
+                bRet[i] = m_listComm[i].Open(G.SYSTEM.fn_GetLightPortTop(i), 9600, 8, Parity.None, StopBits.One);
+                m_listComm[i].ReciveDataevent = delRecv[i];
 
                 m_bIsRecv[i] = false;
 

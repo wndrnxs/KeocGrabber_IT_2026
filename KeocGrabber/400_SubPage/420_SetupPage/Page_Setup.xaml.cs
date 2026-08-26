@@ -123,6 +123,13 @@ namespace KeocGrabber
         public float CamGain3 { get { return fCamGain3; } set { fCamGain3 = value; delUpdateGain?.Invoke(value, 2);  OnPropertyChanged(nameof(CamGain3)); } }
         public float CamGain4 { get { return fCamGain4; } set { fCamGain4 = value; delUpdateGain?.Invoke(value, 3);  OnPropertyChanged(nameof(CamGain4)); } }
 
+        // 라인레이트(Hz)는 레시피가 아니라 카메라(렌즈) 물리 설정값이라 SystemParam에 저장한다.
+        // (SensorTriggerDelay1~4와 동일한 이유) — 값 변경은 다음 grab 시작부터 바로 반영된다.
+        public double CamLineRate1 { get { return G.SYSTEM.CamLineRate1; } set { G.SYSTEM.CamLineRate1 = value; OnPropertyChanged(nameof(CamLineRate1)); } }
+        public double CamLineRate2 { get { return G.SYSTEM.CamLineRate2; } set { G.SYSTEM.CamLineRate2 = value; OnPropertyChanged(nameof(CamLineRate2)); } }
+        public double CamLineRate3 { get { return G.SYSTEM.CamLineRate3; } set { G.SYSTEM.CamLineRate3 = value; OnPropertyChanged(nameof(CamLineRate3)); } }
+        public double CamLineRate4 { get { return G.SYSTEM.CamLineRate4; } set { G.SYSTEM.CamLineRate4 = value; OnPropertyChanged(nameof(CamLineRate4)); } }
+
         public int LightTopValue { get { return nLightTopValue; } set { nLightTopValue = value; delUpdateLightTop?.Invoke(nLightTopCtrlNo, value);  OnPropertyChanged(nameof(LightTopValue)); } }
         public int LightTop1 { get { return nLightTop1; } set { nLightTop1 = value; OnPropertyChanged(nameof(LightTop1)); } }
         public int LightTop2 { get { return nLightTop2; } set { nLightTop2 = value; OnPropertyChanged(nameof(LightTop2)); } }
@@ -161,28 +168,70 @@ namespace KeocGrabber
 
         public ObservableCollection<string> CameraItems { get; set; }
         public ObservableCollection<string> TopLightItems { get; set; }
+        // 콤보 항목 순서 = 카메라 인덱스 순서(0:FRONT 1:REAR 2:IN SIDE 3:OUT SIDE).
+        // 선택 인덱스가 그대로 카메라 인덱스로 쓰이므로 중간을 건너뛰면 안 된다.
+        static readonly string[] CAM_NAMES = { "FRONT CAM (CAM1)", "REAR CAM (CAM2)", "IN SIDE CAM (CAM3)", "OUT SIDE CAM (CAM4)" };
+        static readonly string[] TOP_LIGHT_NAMES = { "FRONT", "REAR", "IN SIDE", "OUT SIDE" };
+
         public void UpdateCamList(int count)
         {
             CameraItems.Clear();
-            CameraItems.Add("Front CAM(CAM1)");
-            if (count == 2)CameraItems.Add("REAR CAM (CAM2)");
-            if (count == 3) CameraItems.Add("IN SIDE CAM (CAM3)");
-            if (count == 4) CameraItems.Add("OUT SIDE CAM (CAM4)");
+            for (int i = 0; i < count && i < CAM_NAMES.Length; i++)
+                CameraItems.Add(CAM_NAMES[i]);
         }
+
+        // 상부 조명 컨트롤러는 카메라 대수만큼 존재한다.
         public void UpdateLightList(int count)
         {
             TopLightItems.Clear();
-            if (count <= 2)
+            for (int i = 0; i < count && i < TOP_LIGHT_NAMES.Length; i++)
+                TopLightItems.Add(TOP_LIGHT_NAMES[i]);
+        }
+
+        // ── 카메라 인덱스 기반 UI 반영 (카메라 대수 가변 대응) ────────────────────
+        public void SetCamExposure(int idx, float value)
+        {
+            switch (idx)
             {
-                TopLightItems.Add("FRONT");
-                TopLightItems.Add("REAR");
+                case 0: CamExposure1 = value; break;
+                case 1: CamExposure2 = value; break;
+                case 2: CamExposure3 = value; break;
+                case 3: CamExposure4 = value; break;
             }
-            else
+        }
+
+        public void SetCamGain(int idx, float value)
+        {
+            switch (idx)
             {
-                TopLightItems.Add("FRONT");
-                TopLightItems.Add("REAR");
-                TopLightItems.Add("IN SIDE");
-                TopLightItems.Add("OUT SIDE");
+                case 0: CamGain1 = value; break;
+                case 1: CamGain2 = value; break;
+                case 2: CamGain3 = value; break;
+                case 3: CamGain4 = value; break;
+            }
+        }
+
+        public void SetLightTop(int idx, int value)
+        {
+            switch (idx)
+            {
+                case 0: LightTop1 = value; break;
+                case 1: LightTop2 = value; break;
+                case 2: LightTop3 = value; break;
+                case 3: LightTop4 = value; break;
+            }
+        }
+
+        public void SetLightBot(int idx, int value)
+        {
+            switch (idx)
+            {
+                case 0: LightBot1 = value; break;
+                case 1: LightBot2 = value; break;
+                case 2: LightBot3 = value; break;
+                case 3: LightBot4 = value; break;
+                case 4: LightBot5 = value; break;
+                case 5: LightBot6 = value; break;
             }
         }
     }
@@ -215,20 +264,14 @@ namespace KeocGrabber
 
         private void UpdateLayout(int count)
         {
-            if (count == 1)
-            {
-                this.CAM2_Option.IsEnabled = false;
-                this.CAM3_Option.IsEnabled = false;
-                this.CAM4_Option.IsEnabled = false;
-                this.SetBotLight.IsEnabled = false;
-            }
+            // 카메라 대수만큼만 설정 항목을 열어 둔다. (없는 카메라 조작 방지)
+            this.CAM1_Option.IsEnabled = count >= 1;
+            this.CAM2_Option.IsEnabled = count >= 2;
+            this.CAM3_Option.IsEnabled = count >= 3;
+            this.CAM4_Option.IsEnabled = count >= 4;
 
-            if (count == 2)
-            {
-                this.CAM3_Option.IsEnabled = false;
-                this.CAM4_Option.IsEnabled = false;
-                this.SetBotLight.IsEnabled = false;
-            }
+            // 하부(VIT) 조명은 3캠 이상 구성에서만 존재.
+            this.SetBotLight.IsEnabled = G.LIGHT.UseBottomLight;
 
             if (G.SYSTEM.JavasCount == 2)
             {
@@ -430,27 +473,13 @@ namespace KeocGrabber
         }
         private bool cb_UpdateLightTop(int index, int nLight)
         {
-            switch(index)
-            {
-                case 0: datacontext.LightTop1 = nLight; break;
-                case 1: datacontext.LightTop2 = nLight; break;
-                case 2: datacontext.LightTop3 = nLight; break;
-                case 3: datacontext.LightTop4 = nLight; break;
-            }
+            datacontext.SetLightTop(index, nLight);
             G.LIGHT.fn_SetLightValue(index, nLight);
             return false;
         }
         private bool cb_UpdateLightBot(int index, int nLight)
         {
-            switch (index)
-            {
-                case 0: datacontext.LightBot1 = nLight; break;
-                case 1: datacontext.LightBot2 = nLight; break;
-                case 2: datacontext.LightBot3 = nLight; break;
-                case 3: datacontext.LightBot4 = nLight; break;
-                case 4: datacontext.LightBot5 = nLight; break;
-                case 5: datacontext.LightBot6 = nLight; break;
-            }
+            datacontext.SetLightBot(index, nLight);
             G.LIGHT.fn_SetLightValue(G.LIGHT.TopLightCount + index, nLight);
             return false;
         }
@@ -536,22 +565,16 @@ namespace KeocGrabber
         {
             float? fValue = null;
 
-            if (G.CAMERA.Length == G.SYSTEM.CamCount)
+            // 카메라 대수만큼만 조회. (배열 길이와 연결 상태를 각각 확인)
+            for (int i = 0; i < G.SYSTEM.CamCount && i < G.CAMERA.Length; i++)
             {
-                if (G.CAMERA[0] != null && G.CAMERA[0].IsConnected) { fValue = G.CAMERA[0].fn_GetExposureTime(); if (fValue != null) datacontext.CamExposure1 = (float)fValue; }
-                if (G.CAMERA[1] != null && G.CAMERA[1].IsConnected) { fValue = G.CAMERA[1].fn_GetExposureTime(); if (fValue != null) datacontext.CamExposure2 = (float)fValue; }
+                if (G.CAMERA[i] == null || !G.CAMERA[i].IsConnected) continue;
 
-                if (G.CAMERA[0] != null && G.CAMERA[0].IsConnected) { fValue = G.CAMERA[0].fn_GetDigitalGain(); if (fValue != null) datacontext.CamGain1 = (float)fValue; }
-                if (G.CAMERA[1] != null && G.CAMERA[1].IsConnected) { fValue = G.CAMERA[1].fn_GetDigitalGain(); if (fValue != null) datacontext.CamGain2 = (float)fValue; }
+                fValue = G.CAMERA[i].fn_GetExposureTime();
+                if (fValue != null) datacontext.SetCamExposure(i, (float)fValue);
 
-                if(G.SYSTEM.CamCount > 2)
-                {
-                    if (G.CAMERA[2] != null && G.CAMERA[2].IsConnected) { fValue = G.CAMERA[2].fn_GetExposureTime(); if (fValue != null) datacontext.CamExposure3 = (float)fValue; }
-                    if (G.CAMERA[3] != null && G.CAMERA[3].IsConnected) { fValue = G.CAMERA[3].fn_GetExposureTime(); if (fValue != null) datacontext.CamExposure4 = (float)fValue; }
-
-                    if (G.CAMERA[2] != null && G.CAMERA[2].IsConnected) { fValue = G.CAMERA[2].fn_GetDigitalGain(); if (fValue != null) datacontext.CamGain3 = (float)fValue; }
-                    if (G.CAMERA[3] != null && G.CAMERA[3].IsConnected) { fValue = G.CAMERA[3].fn_GetDigitalGain(); if (fValue != null) datacontext.CamGain4 = (float)fValue; }
-                }
+                fValue = G.CAMERA[i].fn_GetDigitalGain();
+                if (fValue != null) datacontext.SetCamGain(i, (float)fValue);
             }
         }
 
@@ -560,17 +583,23 @@ namespace KeocGrabber
             int? nValue = null;
             if (G.LIGHT != null)
             {
-                
-                nValue = G.LIGHT.fn_GetLightValue(0); if (nValue != null) datacontext.LightTop1 = (int)nValue;
-                nValue = G.LIGHT.fn_GetLightValue(1); if (nValue != null) datacontext.LightTop2 = (int)nValue;
-                if (G.SYSTEM.CamCount > 2)
+                int nCamCount = G.SYSTEM.CamCount;
+
+                // 상부 = 카메라 대수만큼, 이어지는 인덱스가 하부(VIT) 채널.
+                // 4캠 기준 0~3 상부 / 4~7 하부 — 기존 매핑과 동일.
+                for (int i = 0; i < nCamCount; i++)
                 {
-                    nValue = G.LIGHT.fn_GetLightValue(2); if (nValue != null) datacontext.LightTop3 = (int)nValue;
-                    nValue = G.LIGHT.fn_GetLightValue(3); if (nValue != null) datacontext.LightTop4 = (int)nValue;
-                    nValue = G.LIGHT.fn_GetLightValue(4); if (nValue != null) datacontext.LightBot1 = (int)nValue;
-                    nValue = G.LIGHT.fn_GetLightValue(5); if (nValue != null) datacontext.LightBot2 = (int)nValue;
-                    nValue = G.LIGHT.fn_GetLightValue(6); if (nValue != null) datacontext.LightBot3 = (int)nValue;
-                    nValue = G.LIGHT.fn_GetLightValue(7); if (nValue != null) datacontext.LightBot4 = (int)nValue;
+                    nValue = G.LIGHT.fn_GetLightValue(i);
+                    if (nValue != null) datacontext.SetLightTop(i, (int)nValue);
+                }
+
+                if (G.LIGHT.UseBottomLight)
+                {
+                    for (int i = 0; i < LightManager.BOTTOM_LIGHT_CH_COUNT; i++)
+                    {
+                        nValue = G.LIGHT.fn_GetLightValue(nCamCount + i);
+                        if (nValue != null) datacontext.SetLightBot(i, (int)nValue);
+                    }
                 }
             }
         }

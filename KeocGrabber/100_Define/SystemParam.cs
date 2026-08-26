@@ -51,11 +51,30 @@ namespace KeocGrabber
         bool useEuresys = true;
         MILBOARD_TYPE boardType = MILBOARD_TYPE.EN_BT_RADIENTEVCL;
 
-        //Cam Delay
-        int grabDelayCam1 = 0;
-        int grabDelayCam2 = 0;
-        int grabDelayCam3 = 0;
-        int grabDelayCam4 = 0;
+        // Sensor I/O (Euresys 15pin D-Sub : #3 = IIN11+, #12 = IIN11-)
+        // 폴링 주기/램프 유지 시간은 현장별 조정이 필요 없어 SensorIOManager 안에
+        // 상수(POLL_INTERVAL_MS/LAMP_HOLD_MS)로 고정했다. 여기 두는 값은 실제 배선/운용에
+        // 따라 달라지는 것만 남긴다.
+        bool useSensorIO = true;
+        string sensorInputLine = "IIN11";
+        bool sensorLogEnable = true;
+        string sensorDelayTool = "DEL1";
+
+        // 카메라(보드)마다 센서-시야 간 거리가 다를 수 있어 지연은 카메라별로 둔다.
+        // (CamExposure1~4, LightTop1~4와 동일한 관례)
+        int sensorTriggerDelay1 = 0;
+        int sensorTriggerDelay2 = 0;
+        int sensorTriggerDelay3 = 0;
+        int sensorTriggerDelay4 = 0;
+
+        // 카메라별 목표 라인레이트(Hz, AcquisitionLineRate). 렌즈/센서 조합이 카메라마다
+        // 다를 수 있어(예: 늘어짐/눌림 보정) 공용 상수 대신 카메라별 값으로 둔다.
+        // 기본값은 기존 하드코딩 상수(라인주기 90.5us = 1e6/90.5Hz)와 동일하다.
+        const double DEFAULT_LINE_RATE_HZ = 1e6 / 90.5;
+        double camLineRate1 = DEFAULT_LINE_RATE_HZ;
+        double camLineRate2 = DEFAULT_LINE_RATE_HZ;
+        double camLineRate3 = DEFAULT_LINE_RATE_HZ;
+        double camLineRate4 = DEFAULT_LINE_RATE_HZ;
 
         int grabTimeout = 45000;
         int grabHeight = 32768;
@@ -99,13 +118,40 @@ namespace KeocGrabber
         public string LogExt { get { return logExt; } set { logExt = value; } }
         public int MaintenanceDays { get { return maintenanceDays; } set { maintenanceDays = value; } }
 
-        public int CamCount { get { return camCount; } set { camCount = value; } }
-        //public int LightCount{ get { return lightCount; } set { lightCount = value; } }
+        // 카메라 대수. 1 ~ Define.CAM_COUNT(4) 범위로 제한한다.
+        // (레시피/조명/포트 설정이 4채널까지만 존재하므로 범위를 벗어난 XML 값은 잘라낸다)
+        public int CamCount
+        {
+            get { return camCount; }
+            set { camCount = Math.Min(Math.Max(1, value), Define.CAM_COUNT); }
+        }
 
-        public int GrabDelayCam1 { get { return grabDelayCam1; } set { grabDelayCam1 = value; } }
-        public int GrabDelayCam2 { get { return grabDelayCam2; } set { grabDelayCam2 = value; } }
-        public int GrabDelayCam3 { get { return grabDelayCam3; } set { grabDelayCam3 = value; } }
-        public int GrabDelayCam4 { get { return grabDelayCam4; } set { grabDelayCam4 = value; } }
+        /// <summary>카메라 인덱스별 시리얼 포트. (0:Front 1:Rear 2:InSide 3:OutSide, Matrox 경로 전용)</summary>
+        public string fn_GetCamPort(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return camport_Front;
+                case 1: return camport_Rear;
+                case 2: return camport_Inside;
+                case 3: return camport_Outside;
+            }
+            return "";
+        }
+
+        /// <summary>상부(DAWOO) 조명 컨트롤러 인덱스별 시리얼 포트.</summary>
+        public string fn_GetLightPortTop(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return lightPortTop1;
+                case 1: return lightPortTop2;
+                case 2: return lightPortTop3;
+                case 3: return lightPortTop4;
+            }
+            return "";
+        }
+        //public int LightCount{ get { return lightCount; } set { lightCount = value; } }
 
         public int GrabTimeout { get { return grabTimeout; } set { grabTimeout = value; } }
 
@@ -128,6 +174,63 @@ namespace KeocGrabber
 
         // Matrox 세부 보드 타입 (UseEuresys == false 일 때만 참조됨).
         public MILBOARD_TYPE BoardType { get { return boardType; } set { boardType = value; } }
+
+        // 센서 입력 모니터링 사용 여부. (Euresys 전용, Matrox는 추후 지원)
+        public bool UseSensorIO { get { return useSensorIO; } set { useSensorIO = value; } }
+
+        // 센서가 연결된 Euresys Interface 라인 이름.
+        // 현장 배선 : 15pin D-Sub #3 = IIN11+, #12 = IIN11- → "IIN11"
+        // 이 값은 스캔 시작 트리거(LIN1) 소스로도 함께 사용된다.
+        public string SensorInputLine { get { return sensorInputLine; } set { sensorInputLine = value; } }
+
+        // 센서 신호(상승 에지) 검출 시 로그 기록 여부.
+        public bool SensorLogEnable { get { return sensorLogEnable; } set { sensorLogEnable = value; } }
+
+        // 센서 ON 후 스캔 시작까지의 지연(ms). 카메라 인덱스별(0:Front 1:Rear 2:InSide 3:OutSide).
+        // 0 = 지연 없음(센서 즉시 촬상). 보드의 IOToolbox DelayTool로 처리하므로 소프트웨어 지터가 없다.
+        // XML에는 ms로 저장하고(1000 = 1초), fn_GetSensorTriggerDelay()가 실제 하드웨어
+        // 계산에 필요한 us로 환산해 돌려준다.
+        public int SensorTriggerDelay1 { get { return sensorTriggerDelay1; } set { sensorTriggerDelay1 = value; } }
+        public int SensorTriggerDelay2 { get { return sensorTriggerDelay2; } set { sensorTriggerDelay2 = value; } }
+        public int SensorTriggerDelay3 { get { return sensorTriggerDelay3; } set { sensorTriggerDelay3 = value; } }
+        public int SensorTriggerDelay4 { get { return sensorTriggerDelay4; } set { sensorTriggerDelay4 = value; } }
+
+        /// <summary>카메라 인덱스(0-base)별 센서 트리거 지연(us). XML 저장값(ms)을 us로 환산해 반환한다.</summary>
+        public int fn_GetSensorTriggerDelay(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return sensorTriggerDelay1 * 1000;
+                case 1: return sensorTriggerDelay2 * 1000;
+                case 2: return sensorTriggerDelay3 * 1000;
+                case 3: return sensorTriggerDelay4 * 1000;
+            }
+            return 0;
+        }
+
+        // 사용할 IOToolbox 지연 블록 이름 (DEL1 ~ DEL4). 카메라마다 자기 보드의 블록을 쓰므로
+        // 보드 간 충돌 없이 공통 이름을 써도 된다 — 필요해지면 카메라별로도 나눌 수 있다.
+        public string SensorDelayTool { get { return sensorDelayTool; } set { sensorDelayTool = value; } }
+
+        // 카메라별 목표 라인레이트(Hz). Euresys AcquisitionLineRate와 동일한 단위/의미.
+        // Setup 화면 CAM SETTING 탭에서 Gain/Exposure와 함께 편집한다.
+        public double CamLineRate1 { get { return camLineRate1; } set { camLineRate1 = value; } }
+        public double CamLineRate2 { get { return camLineRate2; } set { camLineRate2 = value; } }
+        public double CamLineRate3 { get { return camLineRate3; } set { camLineRate3 = value; } }
+        public double CamLineRate4 { get { return camLineRate4; } set { camLineRate4 = value; } }
+
+        /// <summary>카메라 인덱스(0-base)별 목표 라인레이트(Hz)</summary>
+        public double fn_GetCamLineRate(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return camLineRate1;
+                case 1: return camLineRate2;
+                case 2: return camLineRate3;
+                case 3: return camLineRate4;
+            }
+            return DEFAULT_LINE_RATE_HZ;
+        }
 
         public int GrabHeight { get { return grabHeight; } set { grabHeight = value; } }
 

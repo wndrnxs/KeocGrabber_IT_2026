@@ -130,6 +130,20 @@ namespace KeocGrabber
             {
                 request = m_listRequest[0];
 
+                // Master가 보낸 이미지 인덱스는 외부 입력이므로 현재 카메라 대수와 맞는지 확인한다.
+                // (CamCount를 줄인 뒤 예전 인덱스가 들어오면 배열을 벗어난다)
+                if (G.IMAGEMANAGER.IsImageCompalte != null &&
+                    (request.ImageIndex < 0 || request.ImageIndex >= G.IMAGEMANAGER.IsImageCompalte.Length))
+                {
+                    G.WriteLog($"[Error] 요청 이미지 인덱스 범위 초과 : {request.ImageIndex} (카메라 {G.SYSTEM.CamCount}대) — 요청 폐기 (CELL:{request.CellId})", true);
+                    if (mutex.WaitOne(3000))
+                    {
+                        m_listRequest.RemoveAt(0);
+                        mutex.ReleaseMutex();
+                    }
+                    return null;
+                }
+
                 if (G.IMAGEMANAGER.IsImageCompalte != null)
                 {
                     //! 완성된 이미지 먼저 전송 코드.  Taeroo-kgseon - 2024/08/02  13:49

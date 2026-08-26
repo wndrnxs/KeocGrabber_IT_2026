@@ -143,6 +143,18 @@ namespace KeocGrabber
             mc_pageMain.Cam3Viewer.Visibility = count >= 3 ? Visibility.Visible : Visibility.Collapsed;
             mc_pageMain.Cam4Viewer.Visibility = count >= 4 ? Visibility.Visible : Visibility.Collapsed;
 
+            // GrabState도 카메라 수에 맞춘다.
+            mc_pageMain.GrabCam1.Visibility = Visibility.Visible;
+            mc_pageMain.GrabCam2.Visibility = count >= 2 ? Visibility.Visible : Visibility.Collapsed;
+            mc_pageMain.GrabCam3.Visibility = count >= 3 ? Visibility.Visible : Visibility.Collapsed;
+            mc_pageMain.GrabCam4.Visibility = count >= 4 ? Visibility.Visible : Visibility.Collapsed;
+
+            // 센서 I/O 표시도 카메라 수에 맞춘다.
+            mc_pageMain.IOCam1.Visibility = Visibility.Visible;
+            mc_pageMain.IOCam2.Visibility = count >= 2 ? Visibility.Visible : Visibility.Collapsed;
+            mc_pageMain.IOCam3.Visibility = count >= 3 ? Visibility.Visible : Visibility.Collapsed;
+            mc_pageMain.IOCam4.Visibility = count >= 4 ? Visibility.Visible : Visibility.Collapsed;
+
             switch (count)
             {
                 case 1:
@@ -263,9 +275,9 @@ namespace KeocGrabber
 
         private void fn_UpdateState()
         {
-#if DEBUG
-            G.READYSTATE = EN_READYSTATE.Ready;
-#else
+//#if DEBUG
+//            G.READYSTATE = EN_READYSTATE.Ready;
+//#else
             bool bRet = true;
             bRet &= G.COMM.IsConnected;
             if (G.SYSTEM.JavasCount == 2)
@@ -279,15 +291,15 @@ namespace KeocGrabber
                 bRet &= G.GRABBER.fn_IsCameraConnected(i);
             }
 
-            int MaxlightCount = G.SYSTEM.CamCount == 2 ? 2 : 5;
-            for (int i = 0; i < MaxlightCount; i++)
+            // 조명 대수 = 상부(카메라 대수) + 하부(3캠 이상일 때 1). 2캠→2, 4캠→5로 기존과 동일.
+            for (int i = 0; i < G.LIGHT.LightCount; i++)
             {
                 bRet &= G.LIGHT[i];
             }
 
             bRet &= G.GRABBER.IsInited;
             G.READYSTATE = bRet ? EN_READYSTATE.Ready : EN_READYSTATE.Alarm;
-#endif
+//#endif
             mc_pageMain.datacontext.IsGrabStop = G.GRABSTATE != EN_GRABSTATE.Grab;
             mc_pageMain.datacontext.CellID = $"{G.MSGPROC.CellID} [{G.MSGPROC.CellIDCount}]";
 
@@ -295,13 +307,12 @@ namespace KeocGrabber
             {
                 for (int i = 0; i < G.SYSTEM.CamCount; i++)
                 {
-                    mc_pageMain.datacontext.Cam1Grab = G.IMAGEMANAGER.IsImageCompalte[i] ? "Compl" : "Wait";
+                    mc_pageMain.datacontext.SetGrabState(i, G.IMAGEMANAGER.IsImageCompalte[i] ? "Compl" : "Wait");
                 }
             }
-        }
-        public void fn_UpdateSensorUI(bool bAux6_On, bool bAux7_On)
-        {
-            mc_pageMain.Update_IOStatus(bAux6_On, bAux7_On);
+
+            // 센서 입력(IIN11 = 15pin D-Sub #3/#12) 표시 갱신.
+            mc_pageMain.Update_IOStatus();
         }
 
         public void fn_SetupUpdateAutority()

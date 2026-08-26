@@ -20,6 +20,19 @@ namespace KeocGrabber
         public int TopLightCount { get { return mc_DawooLight.CtrlCount; } }
         public int Light_CTRL_CH_Count = 2;
 
+        // ── 구성별 조명 대수 ────────────────────────────────────────────────────
+        // 상부(DAWOO) 컨트롤러 = 카메라 대수만큼, 하부(VIT) 컨트롤러 = 카메라 3대 이상일 때 1대.
+        //   2캠 → 2대 (상부 2)            ← 기존 현장 구성과 동일
+        //   4캠 → 5대 (상부 4 + 하부 1)   ← 기존 현장 구성과 동일
+        //   1캠 → 1대 / 3캠 → 4대         ← 위 규칙을 그대로 일반화한 값
+        // 상태 판정(this[index])에서 하부는 컨트롤러 1대로 계산한다.
+        // CtrlCount가 아니라 CamCount를 쓰는 이유: 조명 Init 전에도 호출되기 때문.
+        public bool UseBottomLight { get { return G.SYSTEM.CamCount > 2; } }
+        public int LightCount { get { return G.SYSTEM.CamCount + (UseBottomLight ? 1 : 0); } }
+
+        // 하부(VIT) 조명 채널 수. 레시피의 LightBot1~4에 대응.
+        public const int BOTTOM_LIGHT_CH_COUNT = 4;
+
         public bool this[int index] 
         { 
             get 
@@ -47,7 +60,7 @@ namespace KeocGrabber
         public void fn_Init()
         {
             mc_DawooLight.fn_InitPort();
-            if(G.SYSTEM.CamCount>2)
+            if (UseBottomLight)
             {
                 mc_VitLight.fn_InitPort();
                 Light_CTRL_CH_Count = 11;
