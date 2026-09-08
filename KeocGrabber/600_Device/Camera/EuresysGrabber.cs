@@ -400,10 +400,13 @@ namespace KeocGrabber
             //   내려면 노출시간 < 라인주기 여야 한다. 노출이 라인주기보다 길면 카메라 라인레이트가
             //   제한돼 보드가 더 빨라 오버런→일부 줄에서 멈춘다.
             double dLineRate = 9600.0;
-            // DUAL_BAND_COMBINE이면 트리거 1번에 M0+M1 두 줄이 나오고 GrabThreadProc가
-            // 그 둘을 합쳐 1줄로 되돌리므로, "합친 후" 기준 목표 라인레이트를 내려면
-            // 트리거 자체는 그 절반 속도로만 보내야 한다.
-            double targetRate = G.SYSTEM.fn_GetCamLineRate(m_nCameraIndex) / fn_RawFactor;   // 목표 라인레이트(Hz), 카메라별
+            // 주의: 라인레이트는 DUAL_BAND_COMBINE 여부와 무관하게 그대로 쓴다.
+            // SequenceLength(=사이클 수)를 논리 높이 그대로 두는 순간, 사이클 1번당 raw 줄이
+            // 2개(M0+M1) 나와도 "사이클 1번 = 실제 이동거리 1칸"이라는 관계 자체는 안 변한다.
+            // GrabThreadProc의 합산은 그 2개 raw 줄을 다시 1개로 되돌릴 뿐이므로, 이 시점에서
+            // 이미 보정이 끝난다 — 여기서 라인레이트까지 낮추면 사이클당 이동거리가 2배로
+            // 늘어나 버려 이중 보정(눌림 발생)이 된다. (실제로 이 실수로 세로가 절반이 됐었음)
+            double targetRate = G.SYSTEM.fn_GetCamLineRate(m_nCameraIndex);   // 목표 라인레이트(Hz), 카메라별
             double targetLinePeriodUs = 1e6 / targetRate;
             try
             {
@@ -463,8 +466,8 @@ namespace KeocGrabber
                 try { _egrabber.Device.Set<double>("CycleMinimumPeriod", dCyclePeriodUs); }
                 catch (Exception ex) { G.WriteLog($"Euresys CycleMinimumPeriod set fail: {ex.Message}", true); }
 
-                G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 라인레이트 설정값(합친후):{G.SYSTEM.fn_GetCamLineRate(m_nCameraIndex):F1}Hz " +
-                           $"트리거목표(합치기전×1/{fn_RawFactor}):{targetRate:F1}Hz 카메라:{dLineRate:F1}Hz 적용주기:{dCyclePeriodUs:F2}us");
+                G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 라인레이트 목표:{targetRate:F1}Hz 카메라:{dLineRate:F1}Hz 적용주기:{dCyclePeriodUs:F2}us" +
+                           (DUAL_BAND_COMBINE ? " (밴드합산 ON, raw 2배 수신 후 합산)" : ""));
 
                 try { _egrabber.Device.Set<string>("StartOfSequenceTriggerSource", strSeqTriggerSource); }
                 catch (Exception ex) { G.WriteLog($"Euresys StartOfSequenceTriggerSource set fail: {ex.Message}", true); }
