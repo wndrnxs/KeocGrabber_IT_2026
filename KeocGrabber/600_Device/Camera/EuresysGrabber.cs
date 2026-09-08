@@ -286,16 +286,25 @@ namespace KeocGrabber
             }
         }
 
+        // 진단용 임시 조치: 이 듀얼라인 센서(GL3516, M0/M1 밴드)로 촬상한 결과가
+        // 정사각형 물체 기준 세로가 정확히 2배로 늘어져 보이는 문제가 있어(§README 6-1 참고),
+        // M1(두 번째 줄) 데이터가 M0와 별도로 이중 출력되는 게 원인인지 확인하는 중이다.
+        // 예전 코드는 "모든 밴드를 무조건 켠다"였는데, 그러면 이 앱을 재시작할 때마다
+        // eGrabber Studio로 수동으로 꺼둔 M1이 다시 켜져서 테스트 자체가 무효화됐다.
+        // → 지금은 첫 번째 밴드(M0)만 켜고 나머지는 명시적으로 끈다.
+        // 이 변경으로 늘어짐이 사라지는지 확인되면 이 상태를 정식 동작으로 굳히면 되고,
+        // 그래도 그대로면 원인이 밴드가 아니므로 원상복구(전부 켜기) 검토가 필요하다.
         private void fn_EnableDualSensor()
         {
             try
             {
                 string[] bands = _egrabber.Remote.EnumEntries("BandSelector", true);
-                foreach (var band in bands)
+                for (int i = 0; i < bands.Length; i++)
                 {
-                    _egrabber.Remote.Set<string>("BandSelector", band);
-                    if (!_egrabber.Remote.Get<bool>("BandEnable"))
-                        _egrabber.Remote.Set<bool>("BandEnable", true);
+                    bool bWantEnable = (i == 0);   // 첫 번째 밴드만 사용
+                    _egrabber.Remote.Set<string>("BandSelector", bands[i]);
+                    if (_egrabber.Remote.Get<bool>("BandEnable") != bWantEnable)
+                        _egrabber.Remote.Set<bool>("BandEnable", bWantEnable);
                 }
             }
             catch { }
