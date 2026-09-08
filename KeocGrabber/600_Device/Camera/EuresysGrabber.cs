@@ -37,6 +37,7 @@ namespace KeocGrabber
 
         const ulong BUFFER_COUNT      = 16;
         const ulong GRAB_BUFFER_COUNT = 8;       // production 누적용 버퍼 풀(청크 순환). 8×1024×16384×2≈256MB/cam
+                                                  // DUAL_BAND_COMBINE=true면 raw 청크가 2배(GRAB_CHUNK_HEIGHT×2)라 ≈512MB/cam
         const ulong POP_TIMEOUT_MS    = 1000;    // 짧게: m_bThreadRunning=false 후 스레드가 ~1s 내 종료(stop 응답성 ↑, 중복 pop 방지)
         const ulong LIVE_BUFFER_HEIGHT = 256;
         const ulong GRAB_CHUNK_HEIGHT  = 1024;   // production: 1024라인씩 받아 ImageManager가 GrabHeight까지 누적
@@ -85,16 +86,17 @@ namespace KeocGrabber
 
                 m_nWidth  = (int)_egrabber.Width;
                 m_nHeight = G.SYSTEM.GrabHeight;
-                m_nCurrentBufferHeight = (int)LIVE_BUFFER_HEIGHT;
 
                 string pixelFormat = _egrabber.PixelFormat;
                 m_matType   = fn_GetMatType(pixelFormat);
                 m_dBitShift = fn_GetBitShift(pixelFormat);
 
-                fn_SetBufferAndScan(LIVE_BUFFER_HEIGHT);
-                _egrabber.ReallocBuffers(BUFFER_COUNT, 0);
-
                 fn_EnableDualSensor();
+
+                // DUAL_BAND_COMBINE이면 M0+M1 쌍이 다 들어오도록 raw 버퍼를 2배로 받는다.
+                m_nCurrentBufferHeight = (int)LIVE_BUFFER_HEIGHT * fn_RawFactor;
+                fn_SetBufferAndScan((ulong)m_nCurrentBufferHeight);
+                _egrabber.ReallocBuffers(BUFFER_COUNT, 0);
 
                 delLog?.Invoke($"Euresys Init. IF:{m_nInterfaceIndex} DEV:{m_nDeviceIndex} [{m_nWidth} x {m_nHeight}] [{info.DeviceModelName}] [{pixelFormat}]");
                 m_bIsInit = true;
@@ -163,15 +165,18 @@ namespace KeocGrabber
                 if (bSetup)
                 {
                     m_bSetupMode = true;
+                    // DUAL_BAND_COMBINE이면 M0+M1 쌍이 다 들어오도록 raw 버퍼를 2배로 받는다
+                    // (합쳐서 절반으로 되돌리는 건 GrabThreadProc에서 처리).
+                    int nRawLive = (int)LIVE_BUFFER_HEIGHT * fn_RawFactor;
                     try
                     {
-                        fn_SetBufferAndScan(LIVE_BUFFER_HEIGHT);
+                        fn_SetBufferAndScan((ulong)nRawLive);
                         _egrabber.ReallocBuffers(BUFFER_COUNT, 0);
-                        m_nCurrentBufferHeight = (int)LIVE_BUFFER_HEIGHT;
+                        m_nCurrentBufferHeight = nRawLive;
                     }
                     catch (Exception ex)
                     {
-                        m_nCurrentBufferHeight = m_nHeight;
+                        m_nCurrentBufferHeight = m_nHeight * fn_RawFactor;
                         G.WriteLog($"Euresys Live BufferHeight set fail: {ex.Message}", true);
                     }
 
@@ -182,14 +187,17 @@ namespace KeocGrabber
                 else
                 {
                     m_bSetupMode = false;
-                    // 트리거/카메라 설정을 먼저 한 뒤, 1024라인 청크 버퍼를 할당.
-                    // 한 이미지(GrabHeight)는 1024줄씩 여러 청크로 들어와 ImageManager.AttachImage가 누적한다.
+                    // 트리거/카메라 설정을 먼저 한 뒤, 청크 버퍼를 할당.
+                    // 한 이미지(GrabHeight)는 GRAB_CHUNK_HEIGHT줄씩(합친 후 기준) 여러 청크로
+                    // 들어와 ImageManager.AttachImage가 누적한다. DUAL_BAND_COMBINE이면
+                    // raw로는 그 2배를 받아 GrabThreadProc에서 합쳐 내보낸다.
                     fn_SetExternalTrigger();
+                    int nRawChunk = (int)GRAB_CHUNK_HEIGHT * fn_RawFactor;
                     try
                     {
-                        fn_SetBufferAndScan(GRAB_CHUNK_HEIGHT);
+                        fn_SetBufferAndScan((ulong)nRawChunk);
                         _egrabber.ReallocBuffers(GRAB_BUFFER_COUNT, 0);
-                        m_nCurrentBufferHeight = (int)GRAB_CHUNK_HEIGHT;
+                        m_nCurrentBufferHeight = nRawChunk;
                     }
                     catch (Exception ex) { G.WriteLog($"Euresys BufferHeight set fail: {ex.Message}", true); }
 
@@ -265,6 +273,19 @@ namespace KeocGrabber
                             mat = new Mat(h, w, m_matType, ptr).Clone();
                         }
 
+                        // M0/M1 줄이 번갈아(짝수=M0, 홀수=M1) 들어있는 raw 청크를 세로 1/2로
+                        // 줄이며 인접한 두 줄을 픽셀별로 평균 낸다(INTER_AREA는 정수 2:1
+                        // 축소에서 겹침 없는 박스 평균과 동일). 감도 향상(TDI류) 목적의 합산이며,
+                        // 결과적으로 원래 라인 수(논리 높이)로 되돌아와 이후 파이프라인은
+                        // DUAL_BAND_COMBINE 여부를 몰라도 된다.
+                        if (DUAL_BAND_COMBINE)
+                        {
+                            Mat combined = new Mat();
+                            Cv2.Resize(mat, combined, new OpenCvSharp.Size(w, h / 2), 0, 0, InterpolationFlags.Area);
+                            mat.Dispose();
+                            mat = combined;
+                        }
+
                         delGrab?.Invoke(mat, m_nFrameIndex);
                         m_nFrameIndex++;
 
@@ -287,15 +308,23 @@ namespace KeocGrabber
         }
 
         // 진단 확정: 이 듀얼라인 센서(GL3516, M0/M1 밴드)는 둘 다 켜면 트리거 1번에
-        // 줄이 2개(M0+M1) 따로 출력되어, 정사각형 물체가 세로로 정확히 2배 늘어졌다
-        // (§README 6-1 참고). M0만 사용하면 정상. 아래 상수로 두 상태를 바로 전환해
-        // 재현/비교 테스트할 수 있다 — true(기본, 정상 동작) / false(재현용, 늘어짐 발생).
-        //
+        // 줄이 2개(M0+M1) 따로 출력된다 (§README 6-1 참고). 감도 향상을 위해 두 밴드를
+        // 모두 사용하기로 하여, 카메라 쪽에서 합치지 않는 대신 소프트웨어(GrabThreadProc)에서
+        // M0/M1 줄 쌍을 픽셀 평균으로 합쳐 원래 라인 수로 되돌린다. 이를 위해:
+        //   - 트리거(라인레이트)는 절반으로 낮춰 실제 이동거리당 "합친 후" 줄 수를 맞춘다
+        //   - 보드/스트림에는 논리 높이(m_nHeight, GRAB_CHUNK_HEIGHT, LIVE_BUFFER_HEIGHT)의
+        //     2배(raw)를 요청해 M0+M1 쌍이 전부 들어오게 한다
+        //   - GrabThreadProc가 raw 청크를 세로 1/2로(INTER_AREA, 인접 두 줄 평균) 합쳐서
+        //     넘기므로, 이후 파이프라인(ImageManager 등)은 이 사실을 몰라도 된다
+        // 단일 밴드로 되돌리려면 DUAL_BAND_COMBINE을 false로 — 라인레이트/버퍼 크기가
+        // 자동으로 원래대로(배율 1) 계산된다.
+        const bool DUAL_BAND_COMBINE = true;
+
+        private int fn_RawFactor { get { return DUAL_BAND_COMBINE ? 2 : 1; } }
+
         // 주의: 카메라의 BandEnable은 전원이 꺼져도 마지막 값을 기억할 수도, 안 할 수도
         // 있다(미확인). 이 함수가 매번 명시적으로 강제하므로 이 값에만 의존하면 된다 —
         // eGrabber Studio로 수동 변경한 값은 앱 재시작 시 이 설정으로 덮어써진다.
-        const bool USE_SINGLE_BAND_ONLY = false;
-
         private void fn_EnableDualSensor()
         {
             try
@@ -303,7 +332,7 @@ namespace KeocGrabber
                 string[] bands = _egrabber.Remote.EnumEntries("BandSelector", true);
                 for (int i = 0; i < bands.Length; i++)
                 {
-                    bool bWantEnable = USE_SINGLE_BAND_ONLY ? (i == 0) : true;
+                    bool bWantEnable = DUAL_BAND_COMBINE ? true : (i == 0);
                     _egrabber.Remote.Set<string>("BandSelector", bands[i]);
                     if (_egrabber.Remote.Get<bool>("BandEnable") != bWantEnable)
                         _egrabber.Remote.Set<bool>("BandEnable", bWantEnable);
@@ -371,7 +400,10 @@ namespace KeocGrabber
             //   내려면 노출시간 < 라인주기 여야 한다. 노출이 라인주기보다 길면 카메라 라인레이트가
             //   제한돼 보드가 더 빨라 오버런→일부 줄에서 멈춘다.
             double dLineRate = 9600.0;
-            double targetRate = G.SYSTEM.fn_GetCamLineRate(m_nCameraIndex);   // 목표 라인레이트(Hz), 카메라별
+            // DUAL_BAND_COMBINE이면 트리거 1번에 M0+M1 두 줄이 나오고 GrabThreadProc가
+            // 그 둘을 합쳐 1줄로 되돌리므로, "합친 후" 기준 목표 라인레이트를 내려면
+            // 트리거 자체는 그 절반 속도로만 보내야 한다.
+            double targetRate = G.SYSTEM.fn_GetCamLineRate(m_nCameraIndex) / fn_RawFactor;   // 목표 라인레이트(Hz), 카메라별
             double targetLinePeriodUs = 1e6 / targetRate;
             try
             {
@@ -431,7 +463,8 @@ namespace KeocGrabber
                 try { _egrabber.Device.Set<double>("CycleMinimumPeriod", dCyclePeriodUs); }
                 catch (Exception ex) { G.WriteLog($"Euresys CycleMinimumPeriod set fail: {ex.Message}", true); }
 
-                G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 라인레이트 목표:{targetRate:F1}Hz 카메라:{dLineRate:F1}Hz 적용주기:{dCyclePeriodUs:F2}us");
+                G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 라인레이트 설정값(합친후):{G.SYSTEM.fn_GetCamLineRate(m_nCameraIndex):F1}Hz " +
+                           $"트리거목표(합치기전×1/{fn_RawFactor}):{targetRate:F1}Hz 카메라:{dLineRate:F1}Hz 적용주기:{dCyclePeriodUs:F2}us");
 
                 try { _egrabber.Device.Set<string>("StartOfSequenceTriggerSource", strSeqTriggerSource); }
                 catch (Exception ex) { G.WriteLog($"Euresys StartOfSequenceTriggerSource set fail: {ex.Message}", true); }
@@ -439,6 +472,11 @@ namespace KeocGrabber
                 try { _egrabber.Device.Set<string>("EndOfSequenceTriggerSource", "SequenceLength"); }
                 catch (Exception ex) { G.WriteLog($"Euresys EndOfSequenceTriggerSource set fail: {ex.Message}", true); }
 
+                // 주의: SequenceLength는 보드 CIC "사이클" 수(=트리거/노광 이벤트 수)이지
+                // 스트림에 실려오는 raw 줄 수가 아니다. DUAL_BAND_COMBINE 상태에서 사이클 1번당
+                // 이미 M0+M1 두 줄이 나오므로(=원래 늘어짐의 원인), 여기는 fn_RawFactor를
+                // 곱하지 않고 논리 높이(m_nHeight) 그대로 둬야 raw 총량이 정확히 m_nHeight×2가
+                // 된다 — BufferHeight/ScanLength(Stream 레벨, raw 줄 수 기준)와는 성격이 다르다.
                 try { _egrabber.Device.Set<long>("SequenceLength", (long)m_nHeight); }
                 catch (Exception ex) { G.WriteLog($"Euresys SequenceLength set fail: {ex.Message}", true); }
             }
