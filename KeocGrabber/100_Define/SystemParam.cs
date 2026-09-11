@@ -238,13 +238,8 @@ namespace KeocGrabber
             return 1e6 / fn_GetCamLinePeriod(idx);
         }
 
-        /// <summary>카메라 인덱스(0-base)별 노출시간 상한(us). 노출은 라인주기를 넘을 수 없다.</summary>
-        // 예전엔 8us 여유를 뺐지만 이 카메라는 노출 = 라인주기로도 정상 촬상됨(실측).
-        // 여유가 필요한 카메라가 나오면 여기서만 빼면 UI 슬라이더 상한과 그래버 캡이 같이 바뀐다.
-        public double fn_GetCamExposureMax(int idx)
-        {
-            return fn_GetCamLinePeriod(idx);
-        }
+        // 노출시간 상한(라인주기 - 카메라 오버헤드)은 오버헤드를 카메라가 실측해야 알 수 있어
+        // EuresysGrabber.fn_GetExposureMaxUs()에 둔다.
 
         public int GrabHeight { get { return grabHeight; } set { grabHeight = value; } }
 

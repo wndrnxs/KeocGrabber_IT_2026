@@ -19,6 +19,20 @@ namespace KeocGrabber
         int m_nDeviceIndex;
         int m_nCameraIndex;   // GrabberManager 리스트상의 위치(0:Front 1:Rear 2:InSide 3:OutSide) — 카메라별 설정(트리거 지연 등) 조회에 사용
 
+        // 카메라가 라인 1줄을 내는 데 노출 외에 더 쓰는 시간(us). 노출 + 이 값 > 라인주기면 카메라가
+        // AcquisitionLineRate를 스스로 깎아 보드가 느려지고 세로가 눌린다(실측: 90.5us 노출에서
+        // 10564.5Hz=94.66us → 4.2us. 프리런에선 7.8us). 모드마다 달라 상수로 못 두고 트리거 촬상
+        // 시작 시 readback으로 실측한다. 0 = 아직 미측정.
+        double m_dExposureOverheadUs = 0;
+        const double EXPOSURE_TRIM_STEP_US = 0.5;   // 실측 오버헤드에 더하는 여유(카메라 노출 분해능 반올림 흡수)
+        public double ExposureOverheadUs { get { return m_dExposureOverheadUs; } }
+
+        /// <summary>현재 카메라의 노출시간 상한(us) = 라인주기 - 실측 오버헤드</summary>
+        public double fn_GetExposureMaxUs()
+        {
+            return G.SYSTEM.fn_GetCamLinePeriod(m_nCameraIndex) - m_dExposureOverheadUs;
+        }
+
         int m_nWidth;
         int m_nHeight;
         int m_nChannel = 1;
@@ -427,24 +441,41 @@ namespace KeocGrabber
                 try { _egrabber.Remote.Set<string>("TriggerActivation", "RisingEdge"); } catch { }
                 try { _egrabber.Remote.Set<string>("ExposureMode", "Timed"); } catch { }
 
-                // 노출시간이 라인주기를 넘어 있으면 상한으로 내린다(UI 클램프를 안 거친 값 방어).
-                // 상한 정의는 SystemParam.fn_GetCamExposureMax 한 곳 — 예전 8us 여유는 실측상 불필요해 뺐다.
-                double maxExp = G.SYSTEM.fn_GetCamExposureMax(m_nCameraIndex);
+                // 노출시간이 상한(라인주기 - 실측 오버헤드)을 넘어 있으면 내린다(UI 클램프를 안 거친 값 방어).
+                double curExp = 0;
                 try
                 {
-                    double curExp = _egrabber.Remote.Get<double>("ExposureTime");
+                    double maxExp = fn_GetExposureMaxUs();
+                    curExp = _egrabber.Remote.Get<double>("ExposureTime");
                     if (curExp > maxExp)
                     {
                         _egrabber.Remote.Set<double>("ExposureTime", maxExp);
-                        G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 노출시간 {curExp:F1}->{maxExp:F1}us 제한 (라인주기 {targetLinePeriodUs:F1}us 초과)");
+                        G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 노출시간 {curExp:F1}->{maxExp:F1}us 제한 (상한 = 라인주기 {targetLinePeriodUs:F1}us - 오버헤드 {m_dExposureOverheadUs:F2}us)");
+                        curExp = maxExp;
                     }
                 }
                 catch { }
 
-                // 목표 라인레이트 설정 후 실제 허용값 readback
-                try { _egrabber.Remote.Set<double>("AcquisitionLineRate", targetRate); } catch { }
-                try { dLineRate = _egrabber.Remote.Get<double>("AcquisitionLineRate"); } catch { }
-                if (dLineRate <= 0) dLineRate = 9600.0;
+                // 목표 라인레이트 설정 후 readback. 카메라가 목표보다 낮게 답하면 노출이 너무 긴 것이므로
+                // (1e6/readback - 노출) = 오버헤드를 실측해 노출을 그만큼 줄이고 다시 시도한다.
+                // 카메라는 노출을 올릴 때 라인레이트를 스스로 깎지만 노출을 내려도 되올리지 않으므로
+                // 매번 Set을 다시 해야 한다.
+                for (int nTry = 0; nTry < 3; nTry++)
+                {
+                    try { _egrabber.Remote.Set<double>("AcquisitionLineRate", targetRate); } catch { }
+                    try { dLineRate = _egrabber.Remote.Get<double>("AcquisitionLineRate"); } catch { }
+                    if (dLineRate <= 0) { dLineRate = 9600.0; break; }
+                    if (dLineRate >= targetRate * 0.999 || curExp <= 0) break;
+
+                    double overhead = (1e6 / dLineRate) - curExp;
+                    if (overhead <= 0) break;
+                    m_dExposureOverheadUs = overhead + EXPOSURE_TRIM_STEP_US;
+                    double newExp = targetLinePeriodUs - m_dExposureOverheadUs;
+                    if (newExp <= 0) break;
+                    try { _egrabber.Remote.Set<double>("ExposureTime", newExp); } catch { break; }
+                    G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 카메라 {dLineRate:F1}Hz < 목표 {targetRate:F1}Hz → 오버헤드 실측 {overhead:F2}us, 노출 {curExp:F1}->{newExp:F1}us 재시도");
+                    curExp = newExp;
+                }
             }
             catch (Exception ex) { G.WriteLog($"Euresys Camera trigger set fail: {ex.Message}", true); }
 
@@ -743,12 +774,12 @@ namespace KeocGrabber
             if (!m_bIsInit) return;
             try
             {
-                // 노출시간은 라인주기를 넘을 수 없다. UI는 슬라이더 상한으로 막지만 레시피 로드(G.SetCurrRecipe)
-                // 경로는 여기가 유일한 관문이라 한 번 더 자른다.
-                double maxUs = G.SYSTEM.fn_GetCamExposureMax(m_nCameraIndex);
+                // 노출시간은 상한(라인주기 - 실측 오버헤드)을 넘을 수 없다. UI는 슬라이더 상한으로 막지만
+                // 레시피 로드(G.SetCurrRecipe) 경로는 여기가 유일한 관문이라 한 번 더 자른다.
+                double maxUs = fn_GetExposureMaxUs();
                 double applyUs = Math.Min((double)valueUs, maxUs);
                 if (applyUs < valueUs)
-                    G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 노출시간 {valueUs:F1}->{applyUs:F1}us 제한 (라인주기 초과)");
+                    G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 노출시간 {valueUs:F1}->{applyUs:F1}us 제한 (상한 {maxUs:F1}us 초과)");
                 _egrabber.Remote.Set<double>("ExposureTime", applyUs);
                 fn_RestartAcquisitionIfNeeded();
             }

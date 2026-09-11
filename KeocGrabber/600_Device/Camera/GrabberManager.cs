@@ -380,6 +380,13 @@ namespace KeocGrabber
             return idx >= 0 && idx < m_listMatrox.Count ? m_listMatrox[idx].fn_GetExposureTime() : 0;
         }
 
+        /// <summary>카메라가 실측한 노출 오버헤드(us). Euresys 전용, 트리거 촬상 전엔 0.</summary>
+        public double fn_GetExposureOverhead(int idx)
+        {
+            if (m_bIsEuresys && idx >= 0 && idx < m_listEuresys.Count) return m_listEuresys[idx].ExposureOverheadUs;
+            return 0;
+        }
+
         public void fn_SetGain(int idx, float value)
         {
             if (m_bIsEuresys)

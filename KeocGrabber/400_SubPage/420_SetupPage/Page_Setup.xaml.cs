@@ -147,18 +147,23 @@ namespace KeocGrabber
         // Matrox는 라인주기가 DCF 파일 안에 있어 앱이 값을 모른다 → 기존 고정 범위 유지
         const double EXPOSURE_MAX_MATROX_US = 255;
 
+        // 오버헤드는 트리거 촬상을 한 번 해야 실측되므로(EuresysGrabber 참고) 그 전까지 상한 = 라인주기.
         double fn_GetExposureMax(int idx)
         {
-            return G.SYSTEM.UseEuresys ? G.SYSTEM.fn_GetCamExposureMax(idx) : EXPOSURE_MAX_MATROX_US;
+            if (!G.SYSTEM.UseEuresys) return EXPOSURE_MAX_MATROX_US;
+            return G.SYSTEM.fn_GetCamLinePeriod(idx) - G.GRABBER.fn_GetExposureOverhead(idx);
         }
 
         string fn_GetLinePeriodHint(int idx)
         {
             if (!G.SYSTEM.UseEuresys)
                 return "Matrox는 DCF 파일의 LinePeriod를 사용합니다 (이 값은 Euresys 전용)";
+            double overhead = G.GRABBER.fn_GetExposureOverhead(idx);
             return $"= {G.SYSTEM.fn_GetCamLineRate(idx):F1} Hz (AcquisitionLineRate — 로그/eGrabber Studio 표기)\n" +
                    "라인주기(us) = 픽셀분해능(um) / 이송속도(mm/s) × 1000. 늘어짐/눌림 보정 시 조정.\n" +
-                   $"노출시간 상한 = {G.SYSTEM.fn_GetCamExposureMax(idx):F1} us";
+                   $"노출시간 상한 = {fn_GetExposureMax(idx):F1} us" +
+                   (overhead > 0 ? $" (라인주기 - 카메라 실측 오버헤드 {overhead:F2}us)"
+                                 : " (카메라 오버헤드는 첫 트리거 촬상 때 실측되어 반영)");
         }
 
         // 페이지(바인딩)가 ImageGrabber.xml 로드보다 먼저 만들어지므로 로드 뒤 한 번 다시 알린다.
