@@ -30,7 +30,7 @@ namespace KeocGrabber
         /// <summary>현재 카메라의 노출시간 상한(us) = 라인주기 - 실측 오버헤드</summary>
         public double fn_GetExposureMaxUs()
         {
-            return G.SYSTEM.fn_GetCamLinePeriod(m_nCameraIndex) - m_dExposureOverheadUs;
+            return G.CURRRECIPE.fn_GetCamLinePeriod(m_nCameraIndex) - m_dExposureOverheadUs;
         }
 
         int m_nWidth;
@@ -57,7 +57,7 @@ namespace KeocGrabber
         const ulong GRAB_CHUNK_HEIGHT  = 1024;   // production: 1024라인씩 받아 ImageManager가 GrabHeight까지 누적
         // 현장조건: 200mm/s 물체 스캔용 라인주기. 기본 90.5us(=11049.7Hz).
         // 라인주기 = X픽셀분해능 / 속도 라야 정사각 비율. 늘어짐 보정 필요시 = 현재값 × (정사각물체 결과 H/W).
-        // 카메라(렌즈·센서)마다 값이 다를 수 있어 SystemParam.CamLinePeriod1~4(us)로 카메라별로 두고,
+        // 카메라(렌즈·센서)마다 값이 다를 수 있어 레시피(RecipeParam.CamLinePeriod1~4, us)로 카메라별로 두고,
         // 이 클래스는 fn_GetCamLineRate()가 환산해 주는 Hz(AcquisitionLineRate)를 쓴다.
         // fn_SetExternalTrigger()가 매 grab 시작마다 자기 카메라 인덱스로 최신값을 읽으므로,
         // Setup 화면에서 값을 바꾸면 재시작 없이 다음 grab부터 바로 반영된다.
@@ -421,7 +421,7 @@ namespace KeocGrabber
             // GrabThreadProc의 합산은 그 2개 raw 줄을 다시 1개로 되돌릴 뿐이므로, 이 시점에서
             // 이미 보정이 끝난다 — 여기서 라인레이트까지 낮추면 사이클당 이동거리가 2배로
             // 늘어나 버려 이중 보정(눌림 발생)이 된다. (실제로 이 실수로 세로가 절반이 됐었음)
-            double targetRate = G.SYSTEM.fn_GetCamLineRate(m_nCameraIndex);   // 목표 라인레이트(Hz), 카메라별
+            double targetRate = G.CURRRECIPE.fn_GetCamLineRate(m_nCameraIndex);   // 목표 라인레이트(Hz), 카메라별(레시피)
             double targetLinePeriodUs = 1e6 / targetRate;
             try
             {

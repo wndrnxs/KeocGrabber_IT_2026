@@ -64,7 +64,40 @@ namespace KeocGrabber
         public int LightBot5 { get { return nLightBot5; } set { nLightBot5 = value; OnPropertyChanged(nameof(LightBot5)); } }
         public int LightBot6 { get { return nLightBot6; } set { nLightBot6 = value; OnPropertyChanged(nameof(LightBot6)); } }
 
+        // 카메라별 라인주기(us, Euresys). Matrox DCF의 LinePeriod와 같은 단위. 노광/게인처럼 Setup 화면에서
+        // 편집하고 Save로 저장한다. 태그가 없는 구버전 레시피는 기본값(90.5us = 11049.7Hz)으로 로드된다.
+        // 0 이하가 들어오면 Hz 환산이 깨지므로 최소 1us로 막는다.
+        public const double DEFAULT_LINE_PERIOD_US = 90.5;
+        double dCamLinePeriod1 = DEFAULT_LINE_PERIOD_US;
+        double dCamLinePeriod2 = DEFAULT_LINE_PERIOD_US;
+        double dCamLinePeriod3 = DEFAULT_LINE_PERIOD_US;
+        double dCamLinePeriod4 = DEFAULT_LINE_PERIOD_US;
+
+        public double CamLinePeriod1 { get { return dCamLinePeriod1; } set { dCamLinePeriod1 = Math.Max(1.0, value); OnPropertyChanged(nameof(CamLinePeriod1)); } }
+        public double CamLinePeriod2 { get { return dCamLinePeriod2; } set { dCamLinePeriod2 = Math.Max(1.0, value); OnPropertyChanged(nameof(CamLinePeriod2)); } }
+        public double CamLinePeriod3 { get { return dCamLinePeriod3; } set { dCamLinePeriod3 = Math.Max(1.0, value); OnPropertyChanged(nameof(CamLinePeriod3)); } }
+        public double CamLinePeriod4 { get { return dCamLinePeriod4; } set { dCamLinePeriod4 = Math.Max(1.0, value); OnPropertyChanged(nameof(CamLinePeriod4)); } }
+
         // ── 카메라/조명 인덱스 기반 조회 (카메라 대수 1~4 가변 대응) ──────────────
+
+        /// <summary>카메라 인덱스(0-base)별 라인주기(us)</summary>
+        public double fn_GetCamLinePeriod(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return dCamLinePeriod1;
+                case 1: return dCamLinePeriod2;
+                case 2: return dCamLinePeriod3;
+                case 3: return dCamLinePeriod4;
+            }
+            return DEFAULT_LINE_PERIOD_US;
+        }
+
+        /// <summary>카메라 인덱스(0-base)별 라인레이트(Hz) = 1e6 / 라인주기(us). Euresys AcquisitionLineRate용.</summary>
+        public double fn_GetCamLineRate(int idx)
+        {
+            return 1e6 / fn_GetCamLinePeriod(idx);
+        }
 
         /// <summary>카메라 인덱스(0-base)별 게인</summary>
         public float fn_GetCamGain(int idx)

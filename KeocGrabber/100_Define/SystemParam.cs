@@ -67,15 +67,6 @@ namespace KeocGrabber
         int sensorTriggerDelay3 = 0;
         int sensorTriggerDelay4 = 0;
 
-        // 카메라별 라인주기(us). Matrox DCF의 LinePeriod와 같은 단위라 현장에서 값을 그대로 옮길 수 있다.
-        // 렌즈/센서 조합이 카메라마다 다를 수 있어(예: 늘어짐/눌림 보정) 공용 상수 대신 카메라별 값으로 둔다.
-        // Euresys가 쓰는 Hz(AcquisitionLineRate)는 fn_GetCamLineRate()가 환산한다.
-        const double DEFAULT_LINE_PERIOD_US = 90.5;
-        double camLinePeriod1 = DEFAULT_LINE_PERIOD_US;
-        double camLinePeriod2 = DEFAULT_LINE_PERIOD_US;
-        double camLinePeriod3 = DEFAULT_LINE_PERIOD_US;
-        double camLinePeriod4 = DEFAULT_LINE_PERIOD_US;
-
         int grabTimeout = 45000;
         int grabHeight = 32768;
 
@@ -212,34 +203,7 @@ namespace KeocGrabber
         // 보드 간 충돌 없이 공통 이름을 써도 된다 — 필요해지면 카메라별로도 나눌 수 있다.
         public string SensorDelayTool { get { return sensorDelayTool; } set { sensorDelayTool = value; } }
 
-        // 카메라별 라인주기(us). Setup 화면 CAM SETTING 탭에서 Gain/Exposure와 함께 편집한다.
-        // 0 이하가 들어오면 Hz 환산이 깨지므로 최소 1us로 막는다.
-        public double CamLinePeriod1 { get { return camLinePeriod1; } set { camLinePeriod1 = Math.Max(1.0, value); } }
-        public double CamLinePeriod2 { get { return camLinePeriod2; } set { camLinePeriod2 = Math.Max(1.0, value); } }
-        public double CamLinePeriod3 { get { return camLinePeriod3; } set { camLinePeriod3 = Math.Max(1.0, value); } }
-        public double CamLinePeriod4 { get { return camLinePeriod4; } set { camLinePeriod4 = Math.Max(1.0, value); } }
-
-        /// <summary>카메라 인덱스(0-base)별 라인주기(us)</summary>
-        public double fn_GetCamLinePeriod(int idx)
-        {
-            switch (idx)
-            {
-                case 0: return camLinePeriod1;
-                case 1: return camLinePeriod2;
-                case 2: return camLinePeriod3;
-                case 3: return camLinePeriod4;
-            }
-            return DEFAULT_LINE_PERIOD_US;
-        }
-
-        /// <summary>카메라 인덱스(0-base)별 라인레이트(Hz) = 1e6 / 라인주기(us). Euresys AcquisitionLineRate용.</summary>
-        public double fn_GetCamLineRate(int idx)
-        {
-            return 1e6 / fn_GetCamLinePeriod(idx);
-        }
-
-        // 노출시간 상한(라인주기 - 카메라 오버헤드)은 오버헤드를 카메라가 실측해야 알 수 있어
-        // EuresysGrabber.fn_GetExposureMaxUs()에 둔다.
+        // 카메라별 라인주기(CamLinePeriod1~4)는 노광/게인과 함께 레시피(RecipeParam)에 있다.
 
         public int GrabHeight { get { return grabHeight; } set { grabHeight = value; } }
 
