@@ -147,23 +147,24 @@ namespace KeocGrabber
         // Matrox는 라인주기가 DCF 파일 안에 있어 앱이 값을 모른다 → 기존 고정 범위 유지
         const double EXPOSURE_MAX_MATROX_US = 255;
 
-        // 오버헤드는 트리거 촬상을 한 번 해야 실측되므로(EuresysGrabber 참고) 그 전까지 상한 = 라인주기.
+        // 작업자에게는 "노출 ≤ 라인주기"만 보이게 상한 = 라인주기로 둔다. 카메라 오버헤드(실측, 수 us)를
+        // 뺀 실제 적용값은 EuresysGrabber.fn_SetExposureTime이 알아서 자르고 로그에 남긴다.
         double fn_GetExposureMax(int idx)
         {
-            if (!G.SYSTEM.UseEuresys) return EXPOSURE_MAX_MATROX_US;
-            return G.SYSTEM.fn_GetCamLinePeriod(idx) - G.GRABBER.fn_GetExposureOverhead(idx);
+            return G.SYSTEM.UseEuresys ? G.SYSTEM.fn_GetCamLinePeriod(idx) : EXPOSURE_MAX_MATROX_US;
         }
 
         string fn_GetLinePeriodHint(int idx)
         {
             if (!G.SYSTEM.UseEuresys)
                 return "Matrox는 DCF 파일의 LinePeriod를 사용합니다 (이 값은 Euresys 전용)";
+            double period = G.SYSTEM.fn_GetCamLinePeriod(idx);
             double overhead = G.GRABBER.fn_GetExposureOverhead(idx);
             return $"= {G.SYSTEM.fn_GetCamLineRate(idx):F1} Hz (AcquisitionLineRate — 로그/eGrabber Studio 표기)\n" +
                    "라인주기(us) = 픽셀분해능(um) / 이송속도(mm/s) × 1000. 늘어짐/눌림 보정 시 조정.\n" +
-                   $"노출시간 상한 = {fn_GetExposureMax(idx):F1} us" +
-                   (overhead > 0 ? $" (라인주기 - 카메라 실측 오버헤드 {overhead:F2}us)"
-                                 : " (카메라 오버헤드는 첫 트리거 촬상 때 실측되어 반영)");
+                   $"노출시간 상한 = 라인주기 {period:F1} us" +
+                   (overhead > 0 ? $" (카메라에는 실측 오버헤드 {overhead:F2}us를 뺀 {period - overhead:F1}us까지 적용)"
+                                 : " (카메라 오버헤드는 첫 트리거 촬상 때 실측)");
         }
 
         // 페이지(바인딩)가 ImageGrabber.xml 로드보다 먼저 만들어지므로 로드 뒤 한 번 다시 알린다.
@@ -372,29 +373,7 @@ namespace KeocGrabber
             if (dlg.ShowDialog() == true)
             {
                 LoadRecipe(dlg.FileName);
-                //XmlManager.LoadXml(dlg.FileName, mc_loadedRecipe);
-                //fn_LoadRecipeFromObj();
-
-                switch (datacontext.LightTopCtrlNo)
-                {
-                    case 0: datacontext.LightTopValue = datacontext.LightTop1; break;
-                    case 1: datacontext.LightTopValue = datacontext.LightTop2; break;
-                    case 2: datacontext.LightTopValue = datacontext.LightTop3; break;
-                    case 3: datacontext.LightTopValue = datacontext.LightTop4; break;
-                }
-
-                switch (datacontext.LightBotChNo)
-                {
-                    case 0: datacontext.LightBotValue = datacontext.LightBot1; break;
-                    case 1: datacontext.LightBotValue = datacontext.LightBot2; break;
-                    case 2: datacontext.LightBotValue = datacontext.LightBot3; break;
-                    case 3: datacontext.LightBotValue = datacontext.LightBot4; break;
-                    case 4: datacontext.LightBotValue = datacontext.LightBot5; break;
-                    case 5: datacontext.LightBotValue = datacontext.LightBot6; break;
-                }
-
-                //datacontext.RecipePath = dlg.FileName;
-                //datacontext.RecipeWriteTime = mc_loadedRecipe.RecipeWriteTime;
+                fn_SyncLightSelection();
             }
         }
 
@@ -429,7 +408,27 @@ namespace KeocGrabber
                 XmlManager.SaveXml(dlg.FileName, mc_loadedRecipe);
                 datacontext.RecipePath = dlg.FileName;
                 datacontext.RecipeWriteTime = mc_loadedRecipe.RecipeWriteTime;
+
+                // 저장한 파일이 지금 쓰고 있는 레시피면 메모리(G.CURRRECIPE)도 같이 갱신한다.
+                // 안 그러면 Main으로 돌아갈 때 저장 전 값이 다시 적용돼 "저장했는데 되돌아간다"가 된다.
+                if (fn_IsCurrentRecipePath(dlg.FileName))
+                {
+                    CopyRecipe(mc_loadedRecipe, ref G.CURRRECIPE);
+                    G.CURRRECIPE.CropROI = mc_loadedRecipe.CropROI.Copy();
+                    G.SYSTEM.CurrRecipeEditTime = new FileInfo(dlg.FileName).LastWriteTime;
+                    G.WriteLog($"현재 레시피 갱신 [{dlg.FileName}]");
+                }
             }
+        }
+
+        private bool fn_IsCurrentRecipePath(string path)
+        {
+            try
+            {
+                return string.Equals(Path.GetFullPath(path), Path.GetFullPath(G.SYSTEM.CurrRecipePath),
+                                     StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
         }
 
         /// <summary>
@@ -867,11 +866,42 @@ namespace KeocGrabber
 
         private void bn_CurrentRecipe_Click(object sender, RoutedEventArgs e)
         {
+            fn_ShowCurrentRecipe();
+        }
+
+        /// <summary>
+        /// 지금 쓰고 있는 레시피(G.CURRRECIPE)를 Setup 화면에 띄운다. Setup 진입 시와
+        /// [Load Curr Recipe] 버튼에서 호출. 값이 datacontext에 들어가면서 카메라/조명에도 반영된다.
+        /// </summary>
+        public void fn_ShowCurrentRecipe()
+        {
+            if (G.CURRRECIPE.RecipeName == "") return;   // 레시피 로드 실패 상태면 0값을 뿌리지 않는다
+
+            // 별도 객체로 복사한다. G.CURRRECIPE를 그대로 가리키면 Save/편집이 메모리의 현재 레시피를
+            // 직접 바꿔 버린다(예전 코드가 그랬음).
+            mc_loadedRecipe = new RecipeParam();
             CopyRecipe(G.CURRRECIPE, ref mc_loadedRecipe);
-            mc_loadedRecipe = G.CURRRECIPE;
+            mc_loadedRecipe.CropROI = G.CURRRECIPE.CropROI.Copy();
 
             fn_LoadRecipeFromObj();
+            if (mc_loadedRecipe.CropROI.Columns.Count > 0)
+            {
+                datacontext.DTCropROI = mc_loadedRecipe.CropROI.Copy();
+                for (int i = 3; i >= 0; i--)
+                {
+                    imgview.SelectedObject = i;
+                    fnUpdateROIRect(i);
+                }
+            }
+            fn_SyncLightSelection();
 
+            datacontext.RecipePath = File.Exists(G.SYSTEM.CurrRecipePath) ? G.SYSTEM.CurrRecipePath : "";
+            datacontext.RecipeWriteTime = mc_loadedRecipe.RecipeWriteTime;
+        }
+
+        // 조명 콤보에서 선택 중인 채널의 슬라이더 값을 레시피 값으로 맞춘다.
+        private void fn_SyncLightSelection()
+        {
             switch (datacontext.LightTopCtrlNo)
             {
                 case 0: datacontext.LightTopValue = datacontext.LightTop1; break;
@@ -889,9 +919,6 @@ namespace KeocGrabber
                 case 4: datacontext.LightBotValue = datacontext.LightBot5; break;
                 case 5: datacontext.LightBotValue = datacontext.LightBot6; break;
             }
-
-            datacontext.RecipePath = $"C:/KEOC/Recipe/{G.CURRRECIPE.RecipeName}";
-            datacontext.RecipeWriteTime = mc_loadedRecipe.RecipeWriteTime;
         }
 
         private void DataGrid_PreviewMouseDown(object sender, MouseButtonEventArgs e)

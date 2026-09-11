@@ -208,6 +208,9 @@ namespace KeocGrabber
             {
                 case 0:
                     mc_pageSetup.fn_StopLive();   // Setup 라이브뷰가 켜져 있으면 멈춰 Main의 Grab과 충돌 방지
+                    // Setup에서 실시간으로 바꿔 본 카메라/조명 값은 저장하지 않았으면 버린다 —
+                    // Main은 항상 현재 레시피 값으로 돈다. (Save로 현재 레시피를 덮어썼으면 그 값이 적용됨)
+                    if (frame.Content == mc_pageSetup && G.CURRRECIPE.RecipeName != "") G.SetCurrRecipe();
                     frame.Content = mc_pageMain;
                     bnMain.Background = (SolidColorBrush)resource["ButtonSel"];
                     break;
@@ -218,6 +221,7 @@ namespace KeocGrabber
                     }
                     if (G.USERLEVEL > EN_AUTHORITY.EN_OPERATOR)
                     {
+                        mc_pageSetup.fn_ShowCurrentRecipe();   // 들어올 때 현재 레시피 값(노출/게인/조명/ROI)을 띄운다
                         frame.Content = mc_pageSetup;
                         bnSetup.Background = (SolidColorBrush)resource["ButtonSel"];
                     }
