@@ -126,30 +126,30 @@
                                     <UniformGrid>
                                         <GroupBox Header="FRONT CAM" x:Name="CAM1_Option">
                                             <UniformGrid Columns="1">
-                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="255" USTickFrequency="25" USValueWidth="40" USTitleWidth="100"/>
+                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="{Binding CamExposureMax1}" USTickFrequency="10" USValueWidth="40" USTitleWidth="100"/>
                                                 <uc:UserSlider USTitle="Gain" USValue="{Binding CamGain1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="1" USMaximum="10" USTickFrequency="0.1" USValueWidth="40" USTitleWidth="100"/>
-                                                <uc:UserParam UPTitle="Line Rate" UPUnit="Hz" UPUnitWidth="25" UPValueWidth="70" UPTitleWidth="100" UPValue="{Binding CamLineRate1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="센서-카메라 라인주기(현장조건 200mm/s 기준). 늘어짐/눌림 보정 시 조정."/>
+                                                <uc:UserParam UPTitle="Line Period" UPUnit="us" UPUnitWidth="25" UPValueWidth="70" UPTitleWidth="100" UPValue="{Binding CamLinePeriod1, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" ToolTip="{Binding CamLinePeriodHint1}" PreviewKeyDown="LinePeriod_PreviewKeyDown"/>
                                             </UniformGrid>
                                         </GroupBox>
                                         <GroupBox Header="REAR CAM" x:Name="CAM2_Option">
                                             <UniformGrid Columns="1">
-                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="255" USTickFrequency="25" USValueWidth="40" USTitleWidth="100"/>
+                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="{Binding CamExposureMax2}" USTickFrequency="10" USValueWidth="40" USTitleWidth="100"/>
                                                 <uc:UserSlider USTitle="Gain" USValue="{Binding CamGain2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="1" USMaximum="10" USTickFrequency="0.1" USValueWidth="40" USTitleWidth="100"/>
-                                                <uc:UserParam UPTitle="Line Rate" UPUnit="Hz" UPUnitWidth="25" UPValueWidth="70" UPTitleWidth="100" UPValue="{Binding CamLineRate2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="센서-카메라 라인주기(현장조건 200mm/s 기준). 늘어짐/눌림 보정 시 조정."/>
+                                                <uc:UserParam UPTitle="Line Period" UPUnit="us" UPUnitWidth="25" UPValueWidth="70" UPTitleWidth="100" UPValue="{Binding CamLinePeriod2, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" ToolTip="{Binding CamLinePeriodHint2}" PreviewKeyDown="LinePeriod_PreviewKeyDown"/>
                                             </UniformGrid>
                                         </GroupBox>
                                         <GroupBox Header="IN SIDE CAM" x:Name="CAM3_Option">
                                             <UniformGrid Columns="1">
-                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure3, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="255" USTickFrequency="25" USValueWidth="40" USTitleWidth="100"/>
+                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure3, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="{Binding CamExposureMax3}" USTickFrequency="10" USValueWidth="40" USTitleWidth="100"/>
                                                 <uc:UserSlider USTitle="Gain" USValue="{Binding CamGain3, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="1" USMaximum="10" USTickFrequency="0.1" USValueWidth="40" USTitleWidth="100"/>
-                                                <uc:UserParam UPTitle="Line Rate" UPUnit="Hz" UPUnitWidth="25" UPValueWidth="70" UPTitleWidth="100" UPValue="{Binding CamLineRate3, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="센서-카메라 라인주기(현장조건 200mm/s 기준). 늘어짐/눌림 보정 시 조정."/>
+                                                <uc:UserParam UPTitle="Line Period" UPUnit="us" UPUnitWidth="25" UPValueWidth="70" UPTitleWidth="100" UPValue="{Binding CamLinePeriod3, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" ToolTip="{Binding CamLinePeriodHint3}" PreviewKeyDown="LinePeriod_PreviewKeyDown"/>
                                             </UniformGrid>
                                         </GroupBox>
                                         <GroupBox Header="OUT SIDE CAM" x:Name="CAM4_Option">
                                             <UniformGrid Columns="1">
-                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure4, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="255" USTickFrequency="25" USValueWidth="40" USTitleWidth="100"/>
+                                                <uc:UserSlider USTitle="Exposure Time" USValue="{Binding CamExposure4, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="0" USMaximum="{Binding CamExposureMax4}" USTickFrequency="10" USValueWidth="40" USTitleWidth="100"/>
                                                 <uc:UserSlider USTitle="Gain" USValue="{Binding CamGain4, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" USMinimum="1" USMaximum="10" USTickFrequency="0.1" USValueWidth="40" USTitleWidth="100"/>
-                                                <uc:UserParam UPTitle="Line Rate" UPUnit="Hz" UPUnitWidth="25" UPValueWidth="70" UPTitleWidth="100" UPValue="{Binding CamLineRate4, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="센서-카메라 라인주기(현장조건 200mm/s 기준). 늘어짐/눌림 보정 시 조정."/>
+                                                <uc:UserParam UPTitle="Line Period" UPUnit="us" UPUnitWidth="25" UPValueWidth="70" UPTitleWidth="100" UPValue="{Binding CamLinePeriod4, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" ToolTip="{Binding CamLinePeriodHint4}" PreviewKeyDown="LinePeriod_PreviewKeyDown"/>
                                             </UniformGrid>
                                         </GroupBox>
                                     </UniformGrid>

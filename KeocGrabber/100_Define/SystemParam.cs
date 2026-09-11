@@ -67,14 +67,14 @@ namespace KeocGrabber
         int sensorTriggerDelay3 = 0;
         int sensorTriggerDelay4 = 0;
 
-        // 카메라별 목표 라인레이트(Hz, AcquisitionLineRate). 렌즈/센서 조합이 카메라마다
-        // 다를 수 있어(예: 늘어짐/눌림 보정) 공용 상수 대신 카메라별 값으로 둔다.
-        // 기본값은 기존 하드코딩 상수(라인주기 90.5us = 1e6/90.5Hz)와 동일하다.
-        const double DEFAULT_LINE_RATE_HZ = 1e6 / 90.5;
-        double camLineRate1 = DEFAULT_LINE_RATE_HZ;
-        double camLineRate2 = DEFAULT_LINE_RATE_HZ;
-        double camLineRate3 = DEFAULT_LINE_RATE_HZ;
-        double camLineRate4 = DEFAULT_LINE_RATE_HZ;
+        // 카메라별 라인주기(us). Matrox DCF의 LinePeriod와 같은 단위라 현장에서 값을 그대로 옮길 수 있다.
+        // 렌즈/센서 조합이 카메라마다 다를 수 있어(예: 늘어짐/눌림 보정) 공용 상수 대신 카메라별 값으로 둔다.
+        // Euresys가 쓰는 Hz(AcquisitionLineRate)는 fn_GetCamLineRate()가 환산한다.
+        const double DEFAULT_LINE_PERIOD_US = 90.5;
+        double camLinePeriod1 = DEFAULT_LINE_PERIOD_US;
+        double camLinePeriod2 = DEFAULT_LINE_PERIOD_US;
+        double camLinePeriod3 = DEFAULT_LINE_PERIOD_US;
+        double camLinePeriod4 = DEFAULT_LINE_PERIOD_US;
 
         int grabTimeout = 45000;
         int grabHeight = 32768;
@@ -212,24 +212,38 @@ namespace KeocGrabber
         // 보드 간 충돌 없이 공통 이름을 써도 된다 — 필요해지면 카메라별로도 나눌 수 있다.
         public string SensorDelayTool { get { return sensorDelayTool; } set { sensorDelayTool = value; } }
 
-        // 카메라별 목표 라인레이트(Hz). Euresys AcquisitionLineRate와 동일한 단위/의미.
-        // Setup 화면 CAM SETTING 탭에서 Gain/Exposure와 함께 편집한다.
-        public double CamLineRate1 { get { return camLineRate1; } set { camLineRate1 = value; } }
-        public double CamLineRate2 { get { return camLineRate2; } set { camLineRate2 = value; } }
-        public double CamLineRate3 { get { return camLineRate3; } set { camLineRate3 = value; } }
-        public double CamLineRate4 { get { return camLineRate4; } set { camLineRate4 = value; } }
+        // 카메라별 라인주기(us). Setup 화면 CAM SETTING 탭에서 Gain/Exposure와 함께 편집한다.
+        // 0 이하가 들어오면 Hz 환산이 깨지므로 최소 1us로 막는다.
+        public double CamLinePeriod1 { get { return camLinePeriod1; } set { camLinePeriod1 = Math.Max(1.0, value); } }
+        public double CamLinePeriod2 { get { return camLinePeriod2; } set { camLinePeriod2 = Math.Max(1.0, value); } }
+        public double CamLinePeriod3 { get { return camLinePeriod3; } set { camLinePeriod3 = Math.Max(1.0, value); } }
+        public double CamLinePeriod4 { get { return camLinePeriod4; } set { camLinePeriod4 = Math.Max(1.0, value); } }
 
-        /// <summary>카메라 인덱스(0-base)별 목표 라인레이트(Hz)</summary>
-        public double fn_GetCamLineRate(int idx)
+        /// <summary>카메라 인덱스(0-base)별 라인주기(us)</summary>
+        public double fn_GetCamLinePeriod(int idx)
         {
             switch (idx)
             {
-                case 0: return camLineRate1;
-                case 1: return camLineRate2;
-                case 2: return camLineRate3;
-                case 3: return camLineRate4;
+                case 0: return camLinePeriod1;
+                case 1: return camLinePeriod2;
+                case 2: return camLinePeriod3;
+                case 3: return camLinePeriod4;
             }
-            return DEFAULT_LINE_RATE_HZ;
+            return DEFAULT_LINE_PERIOD_US;
+        }
+
+        /// <summary>카메라 인덱스(0-base)별 라인레이트(Hz) = 1e6 / 라인주기(us). Euresys AcquisitionLineRate용.</summary>
+        public double fn_GetCamLineRate(int idx)
+        {
+            return 1e6 / fn_GetCamLinePeriod(idx);
+        }
+
+        /// <summary>카메라 인덱스(0-base)별 노출시간 상한(us). 노출은 라인주기를 넘을 수 없다.</summary>
+        // 예전엔 8us 여유를 뺐지만 이 카메라는 노출 = 라인주기로도 정상 촬상됨(실측).
+        // 여유가 필요한 카메라가 나오면 여기서만 빼면 UI 슬라이더 상한과 그래버 캡이 같이 바뀐다.
+        public double fn_GetCamExposureMax(int idx)
+        {
+            return fn_GetCamLinePeriod(idx);
         }
 
         public int GrabHeight { get { return grabHeight; } set { grabHeight = value; } }

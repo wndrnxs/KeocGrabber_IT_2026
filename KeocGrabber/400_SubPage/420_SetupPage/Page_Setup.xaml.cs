@@ -123,12 +123,60 @@ namespace KeocGrabber
         public float CamGain3 { get { return fCamGain3; } set { fCamGain3 = value; delUpdateGain?.Invoke(value, 2);  OnPropertyChanged(nameof(CamGain3)); } }
         public float CamGain4 { get { return fCamGain4; } set { fCamGain4 = value; delUpdateGain?.Invoke(value, 3);  OnPropertyChanged(nameof(CamGain4)); } }
 
-        // 라인레이트(Hz)는 레시피가 아니라 카메라(렌즈) 물리 설정값이라 SystemParam에 저장한다.
+        // 라인주기(us)는 레시피가 아니라 카메라(렌즈) 물리 설정값이라 SystemParam에 저장한다.
         // (SensorTriggerDelay1~4와 동일한 이유) — 값 변경은 다음 grab 시작부터 바로 반영된다.
-        public double CamLineRate1 { get { return G.SYSTEM.CamLineRate1; } set { G.SYSTEM.CamLineRate1 = value; OnPropertyChanged(nameof(CamLineRate1)); } }
-        public double CamLineRate2 { get { return G.SYSTEM.CamLineRate2; } set { G.SYSTEM.CamLineRate2 = value; OnPropertyChanged(nameof(CamLineRate2)); } }
-        public double CamLineRate3 { get { return G.SYSTEM.CamLineRate3; } set { G.SYSTEM.CamLineRate3 = value; OnPropertyChanged(nameof(CamLineRate3)); } }
-        public double CamLineRate4 { get { return G.SYSTEM.CamLineRate4; } set { G.SYSTEM.CamLineRate4 = value; OnPropertyChanged(nameof(CamLineRate4)); } }
+        // 노출시간은 라인주기를 넘을 수 없으므로 Exposure 슬라이더 상한(CamExposureMax1~4)이 같이
+        // 움직이고, 이미 넘어 있던 노출은 그 자리에서 상한으로 내린다(카메라에도 반영).
+        // XAML 바인딩은 LostFocus/Enter 커밋이다 — 키 입력마다 반영하면 "90.5"를 치는 도중 "9"에서
+        // 노출이 9us로 잘려 버린다.
+        public double CamLinePeriod1 { get { return G.SYSTEM.CamLinePeriod1; } set { G.SYSTEM.CamLinePeriod1 = value; fn_OnLinePeriodChanged(0); } }
+        public double CamLinePeriod2 { get { return G.SYSTEM.CamLinePeriod2; } set { G.SYSTEM.CamLinePeriod2 = value; fn_OnLinePeriodChanged(1); } }
+        public double CamLinePeriod3 { get { return G.SYSTEM.CamLinePeriod3; } set { G.SYSTEM.CamLinePeriod3 = value; fn_OnLinePeriodChanged(2); } }
+        public double CamLinePeriod4 { get { return G.SYSTEM.CamLinePeriod4; } set { G.SYSTEM.CamLinePeriod4 = value; fn_OnLinePeriodChanged(3); } }
+
+        public double CamExposureMax1 { get { return fn_GetExposureMax(0); } }
+        public double CamExposureMax2 { get { return fn_GetExposureMax(1); } }
+        public double CamExposureMax3 { get { return fn_GetExposureMax(2); } }
+        public double CamExposureMax4 { get { return fn_GetExposureMax(3); } }
+
+        public string CamLinePeriodHint1 { get { return fn_GetLinePeriodHint(0); } }
+        public string CamLinePeriodHint2 { get { return fn_GetLinePeriodHint(1); } }
+        public string CamLinePeriodHint3 { get { return fn_GetLinePeriodHint(2); } }
+        public string CamLinePeriodHint4 { get { return fn_GetLinePeriodHint(3); } }
+
+        // Matrox는 라인주기가 DCF 파일 안에 있어 앱이 값을 모른다 → 기존 고정 범위 유지
+        const double EXPOSURE_MAX_MATROX_US = 255;
+
+        double fn_GetExposureMax(int idx)
+        {
+            return G.SYSTEM.UseEuresys ? G.SYSTEM.fn_GetCamExposureMax(idx) : EXPOSURE_MAX_MATROX_US;
+        }
+
+        string fn_GetLinePeriodHint(int idx)
+        {
+            if (!G.SYSTEM.UseEuresys)
+                return "Matrox는 DCF 파일의 LinePeriod를 사용합니다 (이 값은 Euresys 전용)";
+            return $"= {G.SYSTEM.fn_GetCamLineRate(idx):F1} Hz (AcquisitionLineRate — 로그/eGrabber Studio 표기)\n" +
+                   "라인주기(us) = 픽셀분해능(um) / 이송속도(mm/s) × 1000. 늘어짐/눌림 보정 시 조정.\n" +
+                   $"노출시간 상한 = {G.SYSTEM.fn_GetCamExposureMax(idx):F1} us";
+        }
+
+        // 페이지(바인딩)가 ImageGrabber.xml 로드보다 먼저 만들어지므로 로드 뒤 한 번 다시 알린다.
+        public void RefreshLinePeriod()
+        {
+            for (int i = 0; i < Define.CAM_COUNT; i++) fn_OnLinePeriodChanged(i);
+        }
+
+        void fn_OnLinePeriodChanged(int idx)
+        {
+            string n = (idx + 1).ToString();
+            OnPropertyChanged("CamLinePeriod" + n);
+            OnPropertyChanged("CamExposureMax" + n);
+            OnPropertyChanged("CamLinePeriodHint" + n);
+
+            double max = fn_GetExposureMax(idx);
+            if (GetCamExposure(idx) > max) SetCamExposure(idx, (float)max);
+        }
 
         public int LightTopValue { get { return nLightTopValue; } set { nLightTopValue = value; delUpdateLightTop?.Invoke(nLightTopCtrlNo, value);  OnPropertyChanged(nameof(LightTopValue)); } }
         public int LightTop1 { get { return nLightTop1; } set { nLightTop1 = value; OnPropertyChanged(nameof(LightTop1)); } }
@@ -198,6 +246,18 @@ namespace KeocGrabber
                 case 2: CamExposure3 = value; break;
                 case 3: CamExposure4 = value; break;
             }
+        }
+
+        public float GetCamExposure(int idx)
+        {
+            switch (idx)
+            {
+                case 0: return fCamExposure1;
+                case 1: return fCamExposure2;
+                case 2: return fCamExposure3;
+                case 3: return fCamExposure4;
+            }
+            return 0;
         }
 
         public void SetCamGain(int idx, float value)
@@ -460,6 +520,16 @@ namespace KeocGrabber
             return false;
         }
 
+        // Line Period 입력은 LostFocus 커밋(datacontext 주석 참고)이라 Enter로도 바로 반영되게 한다.
+        private void LinePeriod_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key != System.Windows.Input.Key.Enter) return;
+            var up = sender as FalconWpf.UserParam;
+            if (up == null) return;
+            System.Windows.Data.BindingOperations.GetBindingExpression(up, FalconWpf.UserParam.UPValueProperty)?.UpdateSource();
+            System.Windows.Input.FocusManager.SetFocusedElement(System.Windows.Input.FocusManager.GetFocusScope(G.MAIN), G.MAIN);
+        }
+
         private bool cb_UpdateGain(float fGain, int idx)
         {
             if (idx < G.SYSTEM.CamCount)
@@ -554,6 +624,7 @@ namespace KeocGrabber
             datacontext.UpdateCamList(G.SYSTEM.CamCount);
             datacontext.UpdateLightList(G.SYSTEM.CamCount);
             UpdateLayout(G.SYSTEM.CamCount);
+            datacontext.RefreshLinePeriod();
         }
 
         public void fn_UpdateAutority()

@@ -85,7 +85,7 @@ TCP 프레임은 고정 헤더 + 가변 길이 페이로드로 구성됩니다.
   - `EGrabberDiscovery`로 슬롯을 탐색해 요청 대수만큼 연결
   - **Live(Setup) 모드**: FreeRun, 256라인 버퍼, 33ms throttle로 화면 표시
   - **Production 모드**: 보드 CIC(RC 제어) + 카메라 LineStart 트리거(CXP) 조합으로 라인스캔 트리거링. 센서 1펄스(LIN1) → 보드가 내부 클럭으로 N라인 시퀀스를 생성(`SequenceLength`=GrabHeight)해 1024라인 청크 단위로 수신, `ImageManager`가 누적
-  - 라인주기 목표값(카메라별 `SystemParam.CamLineRate1~4`, Hz 단위. 기본 11049.7Hz = 90.5us, 현장 200mm/s 스캔 조건 기준)에 맞춰 노광시간을 자동 캡핑. Setup 화면 CAM SETTING 탭에서 카메라별로 조정 가능(§6-1 참고)
+  - 라인주기(카메라별 `SystemParam.CamLinePeriod1~4`, us 단위. 기본 90.5us = 11049.7Hz, 현장 200mm/s 스캔 조건 기준)를 `AcquisitionLineRate`(Hz)로 환산해 적용하고, 노광시간이 라인주기를 넘으면 자동 캡핑. Setup 화면 CAM SETTING 탭에서 카메라별로 조정 가능(§6-1 참고)
   - Mono10/12/16 포맷은 CV_16UC1로 받아 8bit로 비트시프트 변환
   - 센서 입력 라인(`IIN11`)의 현재 레벨을 읽는 `fn_TryGetSensorInput()` 제공 (§11 참고)
 - **MatroxGrabber** (`600_Device/Camera/MatroxGrabber.cs`)
@@ -93,20 +93,22 @@ TCP 프레임은 고정 헤더 + 가변 길이 페이로드로 구성됩니다.
   - `MdigProcess` 비동기 그랩 + Hook 콜백으로 프레임 수신
   - 노광/게인은 `VieworksCamera`(시리얼) 경유로 제어
 
-### 6-1. 카메라별 라인레이트 (Euresys)
+### 6-1. 카메라별 라인주기 (Euresys)
 
-카메라(렌즈+센서 조합)마다 실제 픽셀 분해능이 다를 수 있어, 목표 라인레이트를 카메라별로 따로 둡니다.
+카메라(렌즈+센서 조합)마다 실제 픽셀 분해능이 다를 수 있어, 라인주기를 카메라별로 따로 둡니다. 단위는 Matrox DCF의 `LinePeriod`와 같은 **us**라 두 그래버 사이에 값을 그대로 옮길 수 있고, Euresys의 `AcquisitionLineRate`(Hz)는 코드가 환산합니다.
 
 ```
-라인레이트(Hz) = 1e6 / 라인주기(us)
-라인주기(us)  = 물체 위 픽셀분해능(um) / 이송속도(mm/s)
+라인주기(us)   = 물체 위 픽셀분해능(um) / 이송속도(mm/s) × 1000   (예: 18.1um / 200mm/s → 90.5us)
+라인레이트(Hz) = 1e6 / 라인주기(us)                                (90.5us → 11049.7Hz)
 ```
 
-- `SystemParam.CamLineRate1~4`(Hz)에 저장되며, Setup 화면 **CAM SETTING** 탭의 각 카메라 패널에 Exposure Time/Gain과 함께 `Line Rate` 항목으로 노출됩니다. 기본값은 기존 하드코딩 상수와 동일한 `11049.7Hz`(라인주기 90.5us).
+- `SystemParam.CamLinePeriod1~4`(us)에 저장되며, Setup 화면 **CAM SETTING** 탭의 각 카메라 패널에 Exposure Time/Gain과 함께 `Line Period` 항목으로 노출됩니다. 기본값 `90.5us`. 툴팁에 환산된 Hz가 같이 표시됩니다(로그와 eGrabber Studio는 Hz 표기).
+- 입력은 **Enter 또는 포커스 이동 시** 반영됩니다. 키 입력마다 반영하면 "90.5"를 치는 도중 "9"에서 아래의 노출시간 연동이 걸려 노출이 9us로 잘려 버리기 때문입니다.
 - `EuresysGrabber.fn_SetExternalTrigger()`가 그랩을 시작할 때마다 자기 카메라 인덱스로 이 값을 새로 읽으므로, 재시작 없이 **다음 그랩부터 바로 반영**됩니다. 단, Setup 화면의 라이브뷰(`Grab` 버튼)는 FreeRun 모드라 이 트리거 경로를 타지 않아 변경 효과가 보이지 않습니다 — 실제 반영 확인은 Main 화면의 Manual Grab처럼 트리거 기반 촬상으로 해야 합니다.
-- 값을 바꾸면 노출시간 캡(`라인주기 - 8us`)과 보드 CIC의 `CycleMinimumPeriod`도 함께 재계산됩니다.
-- 적용 결과는 매 그랩 시작마다 로그로 남습니다 — `Euresys[CAM1] 라인레이트 목표:11049.7Hz 카메라:11049.7Hz 적용주기:90.50us (밴드합산 ON, raw 2배 수신 후 합산)`. **이 값은 §6-2의 밴드 합산 여부와 무관하게 그대로 씁니다** — 합산은 raw 줄 수만 조정할 뿐 사이클(=실제 이동거리 1칸)당 속도 자체는 바꾸지 않습니다.
-- 물체가 늘어지거나 눌려 보이면(정사각 비율 안 맞음), 정사각형 물체를 찍어 결과 이미지의 H/W 비율을 재고 `현재 라인레이트 ÷ (H/W 비율)`로 보정값을 계산해 넣으면 됩니다.
+- **노출시간 연동**: 노출시간은 라인주기를 넘을 수 없습니다. Exposure Time 슬라이더의 상한이 라인주기와 같이 움직이고, 라인주기를 줄여서 기존 노출이 상한을 넘게 되면 그 자리에서 상한으로 내려 카메라에 반영합니다. 레시피 로드처럼 UI를 거치지 않는 경로는 `EuresysGrabber.fn_SetExposureTime()`과 그랩 시작 시점에서 한 번 더 자릅니다(로그 `노출시간 120.0->90.5us 제한`). 예전에 두던 8us 여유는 노출 = 라인주기로도 정상 촬상됨을 실측으로 확인해 없앴습니다 — 여유가 필요한 카메라가 나오면 `SystemParam.fn_GetCamExposureMax()` 한 곳만 고치면 UI 상한과 그래버 캡이 같이 바뀝니다. Matrox는 라인주기가 DCF 안에 있어 앱이 값을 모르므로 기존 고정 범위(0~255us)를 유지합니다.
+- 적용 결과는 매 그랩 시작마다 로그로 남습니다 — `Euresys[CAM1] 라인레이트 목표:11049.7Hz 카메라:11049.7Hz 적용주기:90.50us (밴드합산 ON, raw 2배 수신 후 합산)`. `카메라:` 값이 `목표:`보다 낮으면 카메라가 그 라인주기를 못 내는 것(대개 노출이 너무 김)이니 노출을 줄여야 합니다. **이 값은 §6-2의 밴드 합산 여부와 무관하게 그대로 씁니다** — 합산은 raw 줄 수만 조정할 뿐 사이클(=실제 이동거리 1칸)당 속도 자체는 바꾸지 않습니다.
+- 물체가 늘어지거나 눌려 보이면(정사각 비율 안 맞음), 정사각형 물체를 찍어 결과 이미지의 H/W 비율을 재고 `현재 라인주기 × (H/W 비율)`로 보정값을 계산해 넣으면 됩니다.
+- 구버전 `ImageGrabber.xml`의 `<CamLineRate1~4>`(Hz) 태그는 더 이상 읽지 않습니다 — 로드 시 기본값 90.5us가 되므로, 값을 바꿔 쓰던 현장은 `1e6 ÷ 기존 Hz`로 환산해 다시 입력해야 합니다.
 
 ### 6-2. 듀얼라인 센서 밴드 합산 (Euresys, GL3516)
 
@@ -122,7 +124,7 @@ final: L0  L1  L2 ...          (원래 논리 줄 수로 복원)
 
 - `EuresysGrabber.DUAL_BAND_COMBINE`(기본 `true`)로 켜져 있습니다. `false`로 바꾸면 M0 단일 밴드로 되돌아가며, raw 버퍼 배율도 자동으로 원래대로(×1) 계산됩니다.
 - 켜져 있으면: 밴드 둘 다 활성화 → 보드/스트림은 raw로 논리 높이의 **2배**를 받음 → `GrabThreadProc`가 raw 청크를 세로 1/2로 합쳐(인접 두 줄 평균) 내보내므로 `ImageManager` 등 이후 파이프라인은 이 사실을 몰라도 됩니다.
-  **라인레이트(`CamLineRate1~4`)는 건드리지 않습니다** — `SequenceLength`(보드 CIC "사이클 수")를 논리 높이 그대로 두는 한, "사이클 1번 = 실제 이동거리 1칸"이라는 관계는 밴드 수와 무관하게 유지되고, `GrabThreadProc`의 합산이 그 시점에 이미 raw 2줄을 1줄로 되돌리기 때문입니다. 여기서 라인레이트까지 낮추면 사이클당 이동거리가 2배로 늘어나 **이중 보정(결과가 가로로 눌려 보임)**이 됩니다 — 실제로 초기 구현에서 이 실수를 했다가 바로잡았습니다.
+  **라인주기(`CamLinePeriod1~4`)는 건드리지 않습니다** — `SequenceLength`(보드 CIC "사이클 수")를 논리 높이 그대로 두는 한, "사이클 1번 = 실제 이동거리 1칸"이라는 관계는 밴드 수와 무관하게 유지되고, `GrabThreadProc`의 합산이 그 시점에 이미 raw 2줄을 1줄로 되돌리기 때문입니다. 여기서 라인레이트까지 낮추면 사이클당 이동거리가 2배로 늘어나 **이중 보정(결과가 가로로 눌려 보임)**이 됩니다 — 실제로 초기 구현에서 이 실수를 했다가 바로잡았습니다.
 - **Setup 화면 라이브뷰에도 적용됩니다** — 원래는 FreeRun이라 센서가 그대로 M0+M1 두 줄을 내보내 라이브뷰도 늘어져 보였는데, 라이브 버퍼도 같은 방식으로 합산해 정상 비율로 보이게 했습니다.
 - **메모리 비용**: raw 버퍼가 2배라 그랩 버퍼 메모리가 카메라당 약 256MB → **512MB**로 늘어납니다.
 - Matrox나 단일 밴드 카메라에는 해당 없는 Euresys/이 센서 모델 전용 처리입니다.
@@ -157,7 +159,7 @@ final: L0  L1  L2 ...          (원래 논리 줄 수로 복원)
 
 ## 8. 레시피 / 설정 파일
 
-- **시스템 설정**: 실행 파일 위치의 `ImageGrabber.xml` (없으면 최초 실행 시 기본값으로 생성). 카메라 대수, Master IP/Port(최대 2계열), 그래버 벤더(`UseEuresys`)/Matrox 보드 모델(`BoardType`), GrabHeight, GiGA 보드 Node/Link/Mailbox 번호, 시리얼 포트 매핑, 이미지/로그 경로, 카메라별 라인레이트(`CamLineRate1~4`, §6-1), 센서 I/O 설정(§11) 등을 포함. 구버전 XML의 `<BoardType>Coaxlink Quad G3</BoardType>` 같은 자유 텍스트 값은 `MILBOARD_TYPE` enum 이름이 아니므로 로드 시 해당 필드만 무시되고 기본값으로 대체됩니다(다른 설정에는 영향 없음). Matrox 보드를 쓰는 현장은 업그레이드 시 `BoardType` 값을 enum 이름(예: `EN_BT_RADIENTCXP`)으로 갱신해야 합니다.
+- **시스템 설정**: 실행 파일 위치의 `ImageGrabber.xml` (없으면 최초 실행 시 기본값으로 생성). 카메라 대수, Master IP/Port(최대 2계열), 그래버 벤더(`UseEuresys`)/Matrox 보드 모델(`BoardType`), GrabHeight, GiGA 보드 Node/Link/Mailbox 번호, 시리얼 포트 매핑, 이미지/로그 경로, 카메라별 라인주기(`CamLinePeriod1~4`, us, §6-1), 센서 I/O 설정(§11) 등을 포함. 구버전 XML의 `<BoardType>Coaxlink Quad G3</BoardType>` 같은 자유 텍스트 값은 `MILBOARD_TYPE` enum 이름이 아니므로 로드 시 해당 필드만 무시되고 기본값으로 대체됩니다(다른 설정에는 영향 없음). Matrox 보드를 쓰는 현장은 업그레이드 시 `BoardType` 값을 enum 이름(예: `EN_BT_RADIENTCXP`)으로 갱신해야 합니다.
 - **레시피**: `C:/KEOC/Recipe/<RecipeName>.xml`. 카메라별 노광/게인(최대 4채널), 상/하부 조명값, Crop ROI 테이블(2계열 Master 분할 촬상 시 이미지당 2개 ROI) 포함.
 - XML 직렬화는 리플렉션 기반 커스텀 매니저(`010_Common/XmlManager.cs`, `FalconWpf` 네임스페이스)를 사용하며 `DataTable` 프로퍼티(ROI 등)도 자동 저장/복원합니다.
 
@@ -252,7 +254,7 @@ IIN11 ──▶ LIN1 ──▶ DelayTool(DEL1) ──▶ StartOfSequenceTriggerS
 - 센서 입력 I/O 모니터링과 촬상 지연은 Euresys 전용이며 Matrox 지원은 미구현(§11 참고)
 - 촬상 지연의 `DelayTool` 출력 이름(`StartOfSequenceTriggerSource`의 열거값)은 보드/드라이버 버전에 따라 다를 수 있어 코드가 열거값을 검색해 매칭합니다. 현장 첫 적용 시 로그로 실제 선택된 이름을 확인할 것
 - 카메라 1대·3대 구성은 코드상 지원되나 현장 검증 이력이 없음(§7 참고). 하부 조명 채널 매핑(`CamCount + n`)은 4대 구성 기준을 일반화한 것이라 실제 배선 확인 필요
-- 카메라별 `CamLineRate1~4`는 Setup 화면에서 값을 바꿔도 그 자리에서 결과를 볼 수 없음(라이브뷰가 FreeRun이라 트리거 경로를 안 탐) — 실제 촬상(Manual Grab 등)으로만 확인 가능(§6-1 참고)
+- 카메라별 `CamLinePeriod1~4`는 Setup 화면에서 값을 바꿔도 그 자리에서 결과를 볼 수 없음(라이브뷰가 FreeRun이라 트리거 경로를 안 탐) — 실제 촬상(Manual Grab 등)으로만 확인 가능(§6-1 참고)
 - §6-2 밴드 합산은 소프트웨어(픽셀 평균) 방식입니다. 카메라/센서가 하드웨어 자체적으로 두 밴드를 합쳐 내보내는 기능(TDI류)을 지원하는지는 확인되지 않았습니다 — 있다면 그쪽이 더 정확할 수 있어 카메라 매뉴얼/제조사 확인 필요
 - `GrabberManager.IsGrabbing`은 "전부 그랩 중"의 부정(=하나라도 멈춤)을 반환해 이름과 의미가 반대. `ImageManager.ComplateImage`에서 종료 판정에 쓰이므로 수정 시 동작 확인 필요
 - 드라이브 용량 기반 이미지 자동 삭제 기능 비활성화 상태(§9 참고)

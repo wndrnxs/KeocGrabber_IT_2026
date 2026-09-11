@@ -41,9 +41,10 @@ namespace KeocGrabber
         const ulong POP_TIMEOUT_MS    = 1000;    // 짧게: m_bThreadRunning=false 후 스레드가 ~1s 내 종료(stop 응답성 ↑, 중복 pop 방지)
         const ulong LIVE_BUFFER_HEIGHT = 256;
         const ulong GRAB_CHUNK_HEIGHT  = 1024;   // production: 1024라인씩 받아 ImageManager가 GrabHeight까지 누적
-        // 현장조건: 200mm/s 물체 스캔용 라인레이트. 기본 11049.7Hz(=라인주기 90.5us).
+        // 현장조건: 200mm/s 물체 스캔용 라인주기. 기본 90.5us(=11049.7Hz).
         // 라인주기 = X픽셀분해능 / 속도 라야 정사각 비율. 늘어짐 보정 필요시 = 현재값 × (정사각물체 결과 H/W).
-        // 카메라(렌즈·센서)마다 값이 다를 수 있어 SystemParam.CamLineRate1~4(Hz)로 카메라별로 둔다.
+        // 카메라(렌즈·센서)마다 값이 다를 수 있어 SystemParam.CamLinePeriod1~4(us)로 카메라별로 두고,
+        // 이 클래스는 fn_GetCamLineRate()가 환산해 주는 Hz(AcquisitionLineRate)를 쓴다.
         // fn_SetExternalTrigger()가 매 grab 시작마다 자기 카메라 인덱스로 최신값을 읽으므로,
         // Setup 화면에서 값을 바꾸면 재시작 없이 다음 grab부터 바로 반영된다.
 
@@ -396,8 +397,8 @@ namespace KeocGrabber
             // ── 2) Camera(Remote): 보드 CoaXPress 라인트리거로 라인 스캔 ──
             //   이 카메라는 순수 라인스캔(FrameStart 없음, LineStart 트리거만 존재)이므로
             //   라인마다 보드가 보내는 CXP 트리거를 받아 1라인씩 스캔한다.
-            //   라인주기는 카메라별 목표 라인레이트(현장조건+늘어짐 보정)에서 나온다. 카메라가 이 속도를
-            //   내려면 노출시간 < 라인주기 여야 한다. 노출이 라인주기보다 길면 카메라 라인레이트가
+            //   라인주기는 카메라별 설정(현장조건+늘어짐 보정)에서 나온다. 카메라가 이 속도를
+            //   내려면 노출시간 ≤ 라인주기 여야 한다. 노출이 라인주기보다 길면 카메라 라인레이트가
             //   제한돼 보드가 더 빨라 오버런→일부 줄에서 멈춘다.
             double dLineRate = 9600.0;
             // 주의: 라인레이트는 DUAL_BAND_COMBINE 여부와 무관하게 그대로 쓴다.
@@ -426,15 +427,16 @@ namespace KeocGrabber
                 try { _egrabber.Remote.Set<string>("TriggerActivation", "RisingEdge"); } catch { }
                 try { _egrabber.Remote.Set<string>("ExposureMode", "Timed"); } catch { }
 
-                // 노출시간을 라인주기에 맞게 캡(여유 8us) → 카메라가 목표 라인레이트를 낼 수 있게 함
-                double maxExp = targetLinePeriodUs - 8.0;
+                // 노출시간이 라인주기를 넘어 있으면 상한으로 내린다(UI 클램프를 안 거친 값 방어).
+                // 상한 정의는 SystemParam.fn_GetCamExposureMax 한 곳 — 예전 8us 여유는 실측상 불필요해 뺐다.
+                double maxExp = G.SYSTEM.fn_GetCamExposureMax(m_nCameraIndex);
                 try
                 {
                     double curExp = _egrabber.Remote.Get<double>("ExposureTime");
                     if (curExp > maxExp)
                     {
                         _egrabber.Remote.Set<double>("ExposureTime", maxExp);
-                        G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 노출시간 {curExp:F1}->{maxExp:F1}us 제한 (라인주기 {targetLinePeriodUs:F1}us 달성)");
+                        G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 노출시간 {curExp:F1}->{maxExp:F1}us 제한 (라인주기 {targetLinePeriodUs:F1}us 초과)");
                     }
                 }
                 catch { }
@@ -741,7 +743,13 @@ namespace KeocGrabber
             if (!m_bIsInit) return;
             try
             {
-                _egrabber.Remote.Set<double>("ExposureTime", (double)valueUs);
+                // 노출시간은 라인주기를 넘을 수 없다. UI는 슬라이더 상한으로 막지만 레시피 로드(G.SetCurrRecipe)
+                // 경로는 여기가 유일한 관문이라 한 번 더 자른다.
+                double maxUs = G.SYSTEM.fn_GetCamExposureMax(m_nCameraIndex);
+                double applyUs = Math.Min((double)valueUs, maxUs);
+                if (applyUs < valueUs)
+                    G.WriteLog($"Euresys[CAM{m_nCameraIndex + 1}] 노출시간 {valueUs:F1}->{applyUs:F1}us 제한 (라인주기 초과)");
+                _egrabber.Remote.Set<double>("ExposureTime", applyUs);
                 fn_RestartAcquisitionIfNeeded();
             }
             catch (Exception ex) { G.WriteLog($"Euresys SetExposureTime Fail: {ex.Message}", true); }
