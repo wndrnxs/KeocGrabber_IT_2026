@@ -71,6 +71,9 @@ namespace KeocGrabber
         int grabHeight = 32768;
 
         bool localSave = false;
+
+        // 촬상 타임라인 진단 로그(GrabDiagLog). 문제가 생기면 false로 끄면 된다(재빌드 불필요).
+        bool grabDiagEnable = true;
         
         int serialDelay = 100;
         // Device Count
@@ -217,6 +220,8 @@ namespace KeocGrabber
         public double SwitchRecipeTimeOut { get { return dSwitchRecipeTimeOut; } set { dSwitchRecipeTimeOut = value; } }
 
         public bool LocalSave { get { return localSave; } set { localSave = value; } }
+
+        public bool GrabDiagEnable { get { return grabDiagEnable; } set { grabDiagEnable = value; } }
 
     }
 }

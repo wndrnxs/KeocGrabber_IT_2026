@@ -283,7 +283,10 @@ namespace KeocGrabber
             {
                 // Production 촬상 중인 카메라의 프레임이 Setup 표시로 새면 이미지에서 빠진다 → 진단에 버림으로 집계
                 if (!m_bIsEuresys && idx >= 0 && idx < m_listMatrox.Count && m_listMatrox[idx].IsDiagProduction)
+                {
                     m_listMatrox[idx].fn_DiagAddDiscarded();
+                    if (GrabDiagLog.On) GrabDiagLog.Write("DISCARD", idx, $"MilIndex={milindex} Setup 표시 모드라 이미지에 붙이지 않음");
+                }
                 G.MAIN.Dispatcher.BeginInvoke(DispatcherPriority.Render, new System.Action(delegate ()
                 {
                     if (G.MAIN.SetupCamIndex == idx)
@@ -295,8 +298,12 @@ namespace KeocGrabber
                 if (idx >= 0 && idx < m_nBufferCounter.Length) m_nBufferCounter[idx]++;
                 if (G.IMAGEMANAGER?.IsImageCompalte[idx] == false)
                     G.IMAGEMANAGER?.AttachImage(idx, matImg, milindex);
-                else if (!m_bIsEuresys && idx >= 0 && idx < m_listMatrox.Count)
-                    m_listMatrox[idx].fn_DiagAddDiscarded();
+                else
+                {
+                    if (!m_bIsEuresys && idx >= 0 && idx < m_listMatrox.Count)
+                        m_listMatrox[idx].fn_DiagAddDiscarded();
+                    if (GrabDiagLog.On) GrabDiagLog.Write("DISCARD", idx, $"MilIndex={milindex} 이미지가 이미 완료 상태라 붙이지 않음");
+                }
             }
         }
 

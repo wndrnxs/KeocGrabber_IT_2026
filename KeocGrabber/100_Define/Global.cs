@@ -167,6 +167,7 @@ namespace KeocGrabber
             DISKMANAGER.fn_StartThread();
             LOGGER.fn_Init(G.SYSTEM.LogPath);
             G.WriteLog($"Init Start.");
+            GrabDiagLog.Start();
 
             MSGPROC.fn_Init();
 
@@ -260,6 +261,7 @@ namespace KeocGrabber
             }
 
             G.WriteLog($"Final End.");
+            GrabDiagLog.Stop();
             G.WriteLog($"Program End.");
             LOGGER.fn_Final();
         }
@@ -305,6 +307,7 @@ namespace KeocGrabber
                     var swDiag = System.Diagnostics.Stopwatch.StartNew();
                     SetCurrRecipe();
                     double dRecipeMs = swDiag.Elapsed.TotalMilliseconds;
+                    GrabDiagLog.Write("RECIPE_SET", -1, $"레시피 명령 큐잉 완료 {dRecipeMs:F1}ms");
 
                     for (int i = 0; i < G.SYSTEM.CamCount; i++)
                     {
@@ -320,8 +323,10 @@ namespace KeocGrabber
                         LIGHT.fn_LightOn(G.SYSTEM.CamCount + 3);
                     }
                     double dLightMs = swDiag.Elapsed.TotalMilliseconds;
+                    GrabDiagLog.Write("LIGHT_ON", -1, $"조명 명령 큐잉 완료 {dLightMs:F1}ms");
                     GRABBER.fn_GrabStart();
                     double dArmMs = swDiag.Elapsed.TotalMilliseconds;
+                    GrabDiagLog.Write("ARM_ALL", -1, $"전체 그랩 준비 완료 {dArmMs:F1}ms");
 
                     if (G.SYSTEM.GrabTimeout > 0)
                     {
@@ -345,6 +350,7 @@ namespace KeocGrabber
             {
                 // 이전 촬상이 아직 끝나지 않아 이번 START가 무시됨 → 이번 패널은 촬상되지 않는다
                 G.WriteLog($"[GrabDiag][경고] START 무시: 이전 촬상 진행 중 (GRABSTATE={GRABSTATE}, {type})", true);
+                GrabDiagLog.Write("START_IGNORED", -1, $"이전 촬상 진행 중 GRABSTATE={GRABSTATE}");
             }
         }
 
@@ -387,6 +393,7 @@ namespace KeocGrabber
         static public void GrabStop()
         {
             m_SafetyTimer.Stop();
+            GrabDiagLog.Write("GRAB_STOP_ALL", -1, $"GRABSTATE={GRABSTATE}");
 
             if (GRABSTATE == EN_GRABSTATE.Grab)
             {
@@ -481,6 +488,7 @@ namespace KeocGrabber
         static private void OnSafetyTimeOut(object sender, System.Timers.ElapsedEventArgs e)
         {
             G.WriteLog("[Warning] Safety Time out!", true);
+            GrabDiagLog.Write("SAFETY_TIMEOUT", -1, $"{G.SYSTEM.GrabTimeout}ms 경과, GrabStop 호출");
             GrabStop();
         }
     }

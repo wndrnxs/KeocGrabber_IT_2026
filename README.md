@@ -270,6 +270,35 @@ IIN11 ──▶ LIN1 ──▶ DelayTool(DEL1) ──▶ StartOfSequenceTriggerS
 | 완료후버림 | 이미지가 이미 완료됐거나 Setup 표시로 새서 붙이지 못한 프레임 | 0이 아니면 프레임이 엉뚱한 촬상으로 감 |
 | 누락(MIL) | `M_PROCESS_FRAME_MISSED` | 0이 아니면 보드 단에서 프레임을 놓침 |
 | 첫프레임시시리얼대기 | 첫 프레임 도착 때 카메라 시리얼 큐에 남은 명령 수 | 0이 아니면 레시피(노출/게인) 명령이 촬상 도중 카메라에 도착 |
+| 프레임시작훅 | 보드가 프레임 스캔을 시작한 횟수(`M_GRAB_FRAME_START`) | 받은 프레임 수와 다르면 시작은 했는데 도착하지 않은 프레임이 있음. 계속 0이면 보드가 이 훅을 지원하지 않는 것 |
+
+### 타임라인 로그 (`GrabDiag_yyyyMMdd.csv`)
+
+요약 한 줄로 부족할 때 보는 **이벤트 단위 기록**입니다. 메인 로그와 같은 날짜 폴더(`LOG/yyyy/MM/dd/`)에 별도 CSV로 남습니다.
+
+- **촬상에 영향을 주지 않도록**: 그랩 콜백·시리얼 스레드 등에서는 메모리 큐에 넣기만 하고, 파일 기록은 낮은 우선순위의 백그라운드 스레드가 200ms마다 합니다(`300_Class/GrabDiagLog.cs`). 큐가 20만 건을 넘으면 기록을 버리고 `LOG_DROPPED`로 개수만 남깁니다(촬상 우선).
+- **끄기**: `ImageGrabber.xml`의 `<GrabDiagEnable>false</GrabDiagEnable>` (재빌드 불필요, 재시작 필요). 끄면 큐 기록과 Matrox 프레임 시작 훅 등록을 모두 하지 않습니다.
+- 컬럼: `Time`(µs), `FromCHECK(ms)`(마지막 START(CHECK) 수신 기준 경과), `Event`, `Cam`, `Detail`
+
+| Event | 시점 | 기록 위치 |
+|---|---|---|
+| `CHECK_RECV` / `CHECK_SKIP` | Master의 START(STATE.CHECK) 수신 / 장비 에러로 시작 안 함 | `ProtocallManager` |
+| `START_IGNORED` | 이전 촬상 진행 중이라 START 무시 | `Global.GrabStart` |
+| `ATTACH_RESET` | 누적 위치 0으로 초기화(직전 attach 수·완료 여부 포함) | `ImageManager.InitAttachCount` |
+| `RECIPE_SET` / `LIGHT_ON` / `ARM_ALL` | 레시피·조명 명령 큐잉 완료 / 전체 그랩 준비 완료 | `Global.GrabStart` |
+| `ARM` / `ARM_LIVE` | 카메라별 그랩 준비(트리거 대기 시작) | `MatroxGrabber`·`EuresysGrabber.fn_GrabStart` |
+| `SERIAL_TX` | 시리얼 명령이 **실제로 포트에 쓰인** 순간(카메라 `set 85.8` 등 ASCII, 조명은 HEX) | `SerialComm` 송신 스레드 |
+| `FRAME_START_1ST` / `FRAME_START` | (Matrox) 보드가 프레임 스캔을 시작한 순간. 1ST = **센서 트리거로 스캔이 시작된 순간** | MIL `M_GRAB_FRAME_START` 훅 |
+| `SENSOR_ON` / `SENSOR_OFF` | (Euresys) 센서 입력 상승/하강(10ms 폴링 기준) | `SensorIOManager` |
+| `BUF` / `BUF_LATE` | 버퍼(프레임 1장) 수신. LATE = `M_STOP` 처리 중 도착 | 그랩 콜백 |
+| `ATTACH` | 그 버퍼가 결과 이미지의 **몇 행에 쌓였는지**(attach 순번, MilIndex) | `ImageManager.AttachImage` |
+| `DISCARD` | 이미지에 붙이지 않고 버린 버퍼와 이유 | `GrabberManager.fn_OnGrab` |
+| `IMAGE_COMPLETE` | 이미지 완료 | `ImageManager` |
+| `STOP_REQ` / `STOP_DONE` | 그랩 정지 요청 / 완료 | 그래버 |
+| `SAFETY_TIMEOUT` / `GRAB_STOP_ALL` | 안전 타이머 만료 / 전체 정지 | `Global` |
+| `REQ_RECV` / `REQ_SEND` / `REQ_DROP` | 이미지 요청 수신(CELL ID) / 완료 이미지로 처리 / 300초 미완료로 폐기 | `MessageManager` |
+
+읽는 예: NG 셀의 `REQ_SEND` 줄에서 CELL ID로 촬상을 찾고, 같은 카메라의 `FRAME_START_1ST` → `BUF`×N → `ATTACH`(행 위치) → `IMAGE_COMPLETE` 순서와 간격을 정상 셀과 비교합니다. `ATTACH`의 MilIndex가 0부터 순서대로가 아니거나, `BUF_LATE`·`DISCARD`가 끼어 있거나, `FRAME_START_1ST`가 `ARM`보다 비정상적으로 늦으면 그 지점이 원인 후보입니다.
 
 ## 12. 빌드 방법
 

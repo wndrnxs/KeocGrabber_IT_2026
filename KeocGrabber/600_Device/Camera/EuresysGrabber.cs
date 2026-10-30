@@ -234,6 +234,7 @@ namespace KeocGrabber
                 m_grabThread.Start();
 
                 delLog?.Invoke($"Euresys Grab Start. IF:{m_nInterfaceIndex} Setup:{bSetup}");
+                if (GrabDiagLog.On) GrabDiagLog.Write(bSetup ? "ARM_LIVE" : "ARM", m_nCameraIndex, $"버퍼 {m_nCurrentBufferHeight}줄(raw)");
             }
             catch (Exception ex)
             {
@@ -243,6 +244,7 @@ namespace KeocGrabber
 
         public void fn_GrabStop()
         {
+            if (GrabDiagLog.On) GrabDiagLog.Write("STOP_REQ", m_nCameraIndex, $"받은 버퍼 {m_nFrameIndex}");
             m_bThreadRunning = false;
             fn_ExecuteRemote("AcquisitionStop");
             try { _egrabber?.Stop(); } catch { }
@@ -301,6 +303,8 @@ namespace KeocGrabber
                             mat = combined;
                         }
 
+                        if (GrabDiagLog.On && !m_bSetupMode)
+                            GrabDiagLog.Write("BUF", m_nCameraIndex, $"n={m_nFrameIndex + 1} {w}x{h}(raw) → {mat.Cols}x{mat.Rows}");
                         delGrab?.Invoke(mat, m_nFrameIndex);
                         m_nFrameIndex++;
 

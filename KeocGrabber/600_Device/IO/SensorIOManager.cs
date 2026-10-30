@@ -189,11 +189,15 @@ namespace KeocGrabber
                 else if (bPrev && !bLevel && st.RiseTime != DateTime.MinValue)
                 {
                     st.PulseMs = (dtNow - st.RiseTime).TotalMilliseconds;
+                    if (GrabDiagLog.On) GrabDiagLog.Write("SENSOR_OFF", -1, $"BOARD{ch + 1} 펄스폭 {st.PulseMs:F0}ms");
                 }
 
                 st.Level = bLevel;
                 st.Valid = true;
             }
+
+            // Euresys 전용(폴링 10ms 간격이라 실제 에지보다 최대 10ms 늦게 찍힘)
+            if (bRisingEdge && GrabDiagLog.On) GrabDiagLog.Write("SENSOR_ON", -1, $"BOARD{ch + 1} #{nCount} (폴링 기준, 최대 {POLL_INTERVAL_MS}ms 지연)");
 
             if (bRisingEdge && G.SYSTEM.SensorLogEnable)
                 G.WriteLog($"[SENSOR] {G.GRABBER.fn_GetSensorLine(ch)} 신호 검출 (BOARD{ch + 1})");

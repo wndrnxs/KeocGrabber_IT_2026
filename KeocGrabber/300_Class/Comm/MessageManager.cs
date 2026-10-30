@@ -114,6 +114,9 @@ namespace KeocGrabber
             };
             mutex.WaitOne();
             m_listRequest.Add(req);
+            // 이미지 요청 수신(어느 셀이 어느 카메라 이미지를 요청했는지). 완료된 이미지가 이 요청으로 나간다.
+            if (GrabDiagLog.On)
+                GrabDiagLog.Write("REQ_RECV", imageindex, $"CELL={cellid} crop {imgcropoffsetY}+{imgcropheight} 대기요청 {m_listRequest.Count}개 {sender?.serverType}");
             //m_listRequest.Add(new Tuple<string,int,int,int,int, int, int[], string>(cellid, imageindex, memAreaNo, memOffset, imgcropoffsetY, imgcropheight, nodes));
             mutex.ReleaseMutex();
         }
@@ -166,6 +169,7 @@ namespace KeocGrabber
                         if (elapsedTime.TotalSeconds > 300)
                         {
                             G.WriteLog($"Queue deleted due to timeout. (CELL:{request.CellId})");
+                            GrabDiagLog.Write("REQ_DROP", request.ImageIndex, $"CELL={request.CellId} 300초 동안 이미지 미완료로 요청 폐기");
                             m_listRequest.RemoveAt(0);
                         }
                         else if (mutex.WaitOne(3000))
@@ -203,6 +207,8 @@ namespace KeocGrabber
             int[] nodes = req.Nodes;
             ProtocallManager sender = req.Sender;
 
+            if (GrabDiagLog.On)
+                GrabDiagLog.Write("REQ_SEND", imgindex, $"CELL={cellid} 요청 후 {(DateTime.Now - req.Timestamp).TotalMilliseconds:F0}ms 만에 완료 이미지로 처리");
             OpenCvSharp.Mat matImg = G.IMAGEMANAGER.CamImage[imgindex].Clone() ;
             //matImg = G.IMAGEMANAGER.CamImage[imgindex];
             int ROI_idx = 0;

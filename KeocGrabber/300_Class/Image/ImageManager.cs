@@ -119,6 +119,8 @@ namespace KeocGrabber
 
         public void InitAttachCount(int idx)
         {
+            if (GrabDiagLog.On && m_nAttachCount != null && idx < m_nAttachCount.Length)
+                GrabDiagLog.Write("ATTACH_RESET", idx, $"이전 attach={m_nAttachCount[idx]} 완료={(m_bIsImageComplate != null && m_bIsImageComplate[idx])}");
             if (m_nAttachCount != null)
                 m_nAttachCount[idx] = 0;
 
@@ -154,6 +156,9 @@ namespace KeocGrabber
                     dstEndY = dstStartY + srcheight;
                 }
                 m_matCamImgage[idx][dstStartY, dstEndY, 0, img.Cols] = img[0, srcheight, 0, img.Cols].Clone();
+                // 버퍼가 결과 이미지의 어느 행에 쌓였는지. 도착 순서(attach)와 MilIndex가 다르면 위치가 어긋난 것.
+                if (GrabDiagLog.On)
+                    GrabDiagLog.Write("ATTACH", idx, $"attach={m_nAttachCount[idx]} MilIndex={milindex} 행 {dstStartY}~{dstEndY} / {m_nGrabHeight}");
                 //m_matCamImgage[idx].ToBytes(".bmp")
                 sw.Stop();
                 //G.WriteLog($"Attach Image [idx : {idx}] {sw.ElapsedTicks * 1000 / (double)Stopwatch.Frequency:F3} ms {m_nAttachCount[idx]}");
@@ -189,6 +194,7 @@ namespace KeocGrabber
             //    G.WriteLog($"[Error] Cell ID Empty.", true);
             //}
             m_bIsImageComplate[index] = true;
+            if (GrabDiagLog.On) GrabDiagLog.Write("IMAGE_COMPLETE", index, $"attach {m_nAttachCount[index]}개로 {m_nGrabHeight}행 완료");
 
             // MessageManager.fn_ProcRequest로 이동.
             //G.DISKMANAGER.PushSaveImage(index, m_matCamImgage[index], strlotid);

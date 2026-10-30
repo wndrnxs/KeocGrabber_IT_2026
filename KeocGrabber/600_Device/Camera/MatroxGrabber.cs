@@ -63,6 +63,13 @@ namespace KeocGrabber
 
         /// <summary>도착했지만 이미지에 붙이지 않고 버린 프레임 수(이미 완료된 이미지에 온 프레임). GrabberManager가 올린다.</summary>
         public void fn_DiagAddDiscarded() { lock (m_lockDiag) m_nDiagDiscarded++; }
+
+        // 프레임 시작 훅(M_GRAB_FRAME_START): 보드가 프레임(청크) 스캔을 시작한 순간.
+        // M_TRIGGER_FOR_FIRST_GRAB에서 첫 프레임 시작 = 센서 트리거로 촬상이 시작된 순간.
+        // 보드가 지원하지 않으면 MIL 에러 콜백에 기록만 되고(팝업 없음) 촬상에는 영향 없다.
+        MIL_DIG_HOOK_FUNCTION_PTR m_hookFrameStart = null;
+        bool m_bFrameStartHooked = false;
+        int m_nDiagFrameStartCount = 0;
         public bool IsDiagProduction { get { return m_bDiagProduction; } }
 
         MIL_ID m_MilApplication = MIL.M_NULL;         // Application identifier.
@@ -167,6 +174,17 @@ namespace KeocGrabber
                 MIL.MdigControl(m_MilDigitizer, MIL.M_GRAB_TIMEOUT, MIL.M_INFINITE);
                 MIL.MdigControl(m_MilDigitizer, MIL.M_GRAB_MODE, MIL.M_ASYNCHRONOUS);
 
+                if (G.SYSTEM.GrabDiagEnable)
+                {
+                    try
+                    {
+                        m_hookFrameStart = new MIL_DIG_HOOK_FUNCTION_PTR(OnFrameStart);
+                        MIL.MdigHookFunction(m_MilDigitizer, MIL.M_GRAB_FRAME_START, m_hookFrameStart, GCHandle.ToIntPtr(hUserData));
+                        m_bFrameStartHooked = true;
+                    }
+                    catch (Exception ex) { G.WriteLog($"[GrabDiag] CAM{m_nBoardIndex + 1} 프레임 시작 훅 등록 실패(촬상과 무관): {ex.Message}"); }
+                }
+
                 delLog?.Invoke($"MIL Init.({BoardIndex})");
 
                 m_matGrab = Mat.Zeros(new Size(m_MilImageSizeX, m_MilImageSizeY), matType);
@@ -209,6 +227,11 @@ namespace KeocGrabber
             {
                 MIL.MbufFree(m_MilImage); // Display Buffer 해제
                 m_MilImage = MIL.M_NULL;
+            }
+            if (m_bFrameStartHooked && m_MilDigitizer != MIL.M_NULL)
+            {
+                try { MIL.MdigHookFunction(m_MilDigitizer, MIL.M_GRAB_FRAME_START + MIL.M_UNHOOK, m_hookFrameStart, GCHandle.ToIntPtr(hUserData)); } catch { }
+                m_bFrameStartHooked = false;
             }
             if (m_MilDigitizer != MIL.M_NULL)
             {
@@ -267,6 +290,7 @@ namespace KeocGrabber
                 m_nDiagFirstSerialPending = -1;
                 m_nDiagFramesWhileStopping = 0;
                 m_nDiagDiscarded = 0;
+                m_nDiagFrameStartCount = 0;
                 m_swDiag.Restart();
             }
             if (bSetup)
@@ -287,14 +311,19 @@ namespace KeocGrabber
 
             m_bIsGrabbing = true;
             delLog?.Invoke($"Grab Start.({BoardIndex})");
+            if (GrabDiagLog.On)
+                GrabDiagLog.Write(bSetup ? "ARM_LIVE" : "ARM", m_nBoardIndex,
+                    $"#{m_nDiagSeq} 버퍼 {m_MilBuffer?.Length}장 x {m_MilImageSizeY}줄, 트리거 대기 시작({m_swDiag.Elapsed.TotalMilliseconds:F1}ms)");
         }
 
         public void fn_GrabStop()
         {
             // M_STOP은 이미 채워진 버퍼의 콜백이 끝날 때까지 기다린다 → 그 사이 도착한 프레임을 지각 프레임으로 센다.
+            if (GrabDiagLog.On) GrabDiagLog.Write("STOP_REQ", m_nBoardIndex, $"#{m_nDiagSeq} 받은 프레임 {m_nFrameCount}");
             m_bStopping = true;
             MIL.MdigProcess(m_MilDigitizer, m_MilBuffer, m_MilBuffer.Length, MIL.M_STOP, MIL.M_DEFAULT, UserHookFunctionDelegate, GCHandle.ToIntPtr(hUserData));
             m_bStopping = false;
+            if (GrabDiagLog.On) GrabDiagLog.Write("STOP_DONE", m_nBoardIndex, $"#{m_nDiagSeq} 정지 중 도착 {m_nDiagFramesWhileStopping}");
             m_bIsGrabbing = false;
             delLog?.Invoke($"Grab Stop.({BoardIndex})");
             fn_WriteDiagSummary();
@@ -308,7 +337,7 @@ namespace KeocGrabber
                 m_bDiagProduction = false;        // 같은 촬상에 대해 Stop이 두 번 불려도 한 번만
 
                 int nExpected = m_MilBuffer != null ? m_MilBuffer.Length : 0;
-                int[] idx; double[] ms; int stopping, discarded, serial;
+                int[] idx; double[] ms; int stopping, discarded, serial, frameStart;
                 double totalMs;
                 lock (m_lockDiag)
                 {
@@ -317,6 +346,7 @@ namespace KeocGrabber
                     stopping = m_nDiagFramesWhileStopping;
                     discarded = m_nDiagDiscarded;
                     serial = m_nDiagFirstSerialPending;
+                    frameStart = m_nDiagFrameStartCount;
                     totalMs = m_swDiag.Elapsed.TotalMilliseconds;
                 }
 
@@ -349,9 +379,24 @@ namespace KeocGrabber
                 bool bWarn = idx.Length != nExpected || !bOrderOk || stopping > 0 || discarded > 0 || (strMissed != "-" && strMissed != "0");
                 G.WriteLog($"[GrabDiag]{(bWarn ? "[경고]" : "")} CAM{BoardIndex + 1} #{m_nDiagSeq} 준비→첫프레임:{strFirst} 프레임:{idx.Length}/{nExpected} " +
                            $"간격(평균/최소/최대):{strGap} 순서:{strOrder} 정지중도착:{stopping} 완료후버림:{discarded} 누락(MIL):{strMissed} " +
-                           $"첫프레임시시리얼대기:{(serial < 0 ? "-" : serial.ToString())} 총:{totalMs / 1000.0:F1}s", bWarn);
+                           $"첫프레임시시리얼대기:{(serial < 0 ? "-" : serial.ToString())} 프레임시작훅:{(m_bFrameStartHooked ? frameStart.ToString() : "-")} 총:{totalMs / 1000.0:F1}s", bWarn);
             }
             catch (Exception ex) { G.WriteLog($"[GrabDiag] CAM{BoardIndex + 1} 요약 실패: {ex.Message}", true); }
+        }
+
+        static private MIL_INT OnFrameStart(MIL_INT HookType, MIL_ID HookId, IntPtr HookDataPtr)
+        {
+            try
+            {
+                MatroxGrabber pMain = GCHandle.FromIntPtr(HookDataPtr).Target as MatroxGrabber;
+                if (pMain == null || !GrabDiagLog.On) return 0;
+                int n = Interlocked.Increment(ref pMain.m_nDiagFrameStartCount);
+                // n=1 이 Production에서 센서 트리거로 스캔이 시작된 순간
+                GrabDiagLog.Write(n == 1 ? "FRAME_START_1ST" : "FRAME_START", pMain.m_nBoardIndex,
+                    $"#{pMain.m_nDiagSeq} n={n} 준비후 {pMain.m_swDiag.Elapsed.TotalMilliseconds:F1}ms");
+            }
+            catch { }
+            return 0;
         }
 
         static private MIL_INT OnGrabbedImage(MIL_INT HookType, MIL_ID HookId, IntPtr HookDataPtr)
@@ -385,6 +430,11 @@ namespace KeocGrabber
                             (G.CAMERA != null && nCam < G.CAMERA.Length && G.CAMERA[nCam] != null) ? G.CAMERA[nCam].PendingCount : 0;
                     }
                 }
+
+                // 버퍼(프레임 1장) 수신 순간
+                if (GrabDiagLog.On)
+                    GrabDiagLog.Write(pMain.m_bStopping ? "BUF_LATE" : "BUF", pMain.m_nBoardIndex,
+                        $"#{pMain.m_nDiagSeq} n={pMain.m_nFrameCount + 1} MilIndex={MilIndex} 준비후 {pMain.m_swDiag.Elapsed.TotalMilliseconds:F1}ms");
 
                 if (pMain.m_databuff != null) Array.Clear(pMain.m_databuff, 0, pMain.m_databuff.Length);
 

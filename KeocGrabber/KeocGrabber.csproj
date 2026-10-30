@@ -193,6 +193,7 @@
     <Compile Include="300_Class\Comm\TCPIPClient.cs" />
     <Compile Include="300_Class\DiskManager.cs" />
     <Compile Include="300_Class\GigaBoard\APX7400.cs" />
+    <Compile Include="300_Class\GrabDiagLog.cs" />
     <Compile Include="300_Class\GigaBoard\GiGABoard.cs" />
     <Compile Include="300_Class\Image\ImageManager.cs" />
     <Compile Include="300_Class\Logger.cs" />

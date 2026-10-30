@@ -342,7 +342,12 @@ namespace KeocGrabber
                                 {
                                     case "CHECK":
                                         // recv msg
-                                        if (this.CheckEqError()) break;
+                                        GrabDiagLog.Write("CHECK_RECV", -1, $"{this.m_ServerType} GRABSTATE={G.GRABSTATE}");
+                                        if (this.CheckEqError())
+                                        {
+                                            GrabDiagLog.Write("CHECK_SKIP", -1, $"{this.m_ServerType} 장비 에러 상태로 촬상 시작 안 함");
+                                            break;
+                                        }
                                         
                                         // Grab Start.
                                         G.GrabStart(this.m_ServerType);
