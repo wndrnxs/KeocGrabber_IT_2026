@@ -311,19 +311,14 @@ namespace KeocGrabber
 
             m_bIsGrabbing = true;
             delLog?.Invoke($"Grab Start.({BoardIndex})");
-            if (GrabDiagLog.On)
-                GrabDiagLog.Write(bSetup ? "ARM_LIVE" : "ARM", m_nBoardIndex,
-                    $"#{m_nDiagSeq} 버퍼 {m_MilBuffer?.Length}장 x {m_MilImageSizeY}줄, 트리거 대기 시작({m_swDiag.Elapsed.TotalMilliseconds:F1}ms)");
         }
 
         public void fn_GrabStop()
         {
             // M_STOP은 이미 채워진 버퍼의 콜백이 끝날 때까지 기다린다 → 그 사이 도착한 프레임을 지각 프레임으로 센다.
-            if (GrabDiagLog.On) GrabDiagLog.Write("STOP_REQ", m_nBoardIndex, $"#{m_nDiagSeq} 받은 프레임 {m_nFrameCount}");
             m_bStopping = true;
             MIL.MdigProcess(m_MilDigitizer, m_MilBuffer, m_MilBuffer.Length, MIL.M_STOP, MIL.M_DEFAULT, UserHookFunctionDelegate, GCHandle.ToIntPtr(hUserData));
             m_bStopping = false;
-            if (GrabDiagLog.On) GrabDiagLog.Write("STOP_DONE", m_nBoardIndex, $"#{m_nDiagSeq} 정지 중 도착 {m_nDiagFramesWhileStopping}");
             m_bIsGrabbing = false;
             delLog?.Invoke($"Grab Stop.({BoardIndex})");
             fn_WriteDiagSummary();
@@ -333,7 +328,7 @@ namespace KeocGrabber
         {
             try
             {
-                if (!m_bDiagProduction) return;   // Setup 라이브뷰는 요약하지 않음
+                if (!m_bDiagProduction || !G.SYSTEM.GrabDiagEnable) return;   // Setup 라이브뷰·진단 OFF는 요약하지 않음
                 m_bDiagProduction = false;        // 같은 촬상에 대해 Stop이 두 번 불려도 한 번만
 
                 int nExpected = m_MilBuffer != null ? m_MilBuffer.Length : 0;
@@ -367,19 +362,13 @@ namespace KeocGrabber
                 for (int i = 0; i < idx.Length; i++) if (idx[i] != i) { bOrderOk = false; break; }
                 string strOrder = bOrderOk ? "OK" : string.Join(",", idx);
 
-                string strMissed = "-";
-                try
-                {
-                    MIL_INT nMissed = 0;
-                    MIL.MdigInquire(m_MilDigitizer, MIL.M_PROCESS_FRAME_MISSED, ref nMissed);
-                    strMissed = nMissed.ToString();
-                }
-                catch { }
-
-                bool bWarn = idx.Length != nExpected || !bOrderOk || stopping > 0 || discarded > 0 || (strMissed != "-" && strMissed != "0");
-                G.WriteLog($"[GrabDiag]{(bWarn ? "[경고]" : "")} CAM{BoardIndex + 1} #{m_nDiagSeq} 준비→첫프레임:{strFirst} 프레임:{idx.Length}/{nExpected} " +
-                           $"간격(평균/최소/최대):{strGap} 순서:{strOrder} 정지중도착:{stopping} 완료후버림:{discarded} 누락(MIL):{strMissed} " +
-                           $"첫프레임시시리얼대기:{(serial < 0 ? "-" : serial.ToString())} 프레임시작훅:{(m_bFrameStartHooked ? frameStart.ToString() : "-")} 총:{totalMs / 1000.0:F1}s", bWarn);
+                // 정상 촬상은 메인 로그에 남기지 않는다(세부는 GrabDiag CSV). 이상이 있을 때만 경고 한 줄.
+                bool bFrameStartMismatch = m_bFrameStartHooked && frameStart > 0 && frameStart != idx.Length;
+                bool bWarn = idx.Length != nExpected || !bOrderOk || stopping > 0 || discarded > 0 || bFrameStartMismatch;
+                if (!bWarn) return;
+                G.WriteLog($"[GrabDiag][경고] CAM{BoardIndex + 1} #{m_nDiagSeq} 준비→첫프레임:{strFirst} 프레임:{idx.Length}/{nExpected} " +
+                           $"간격(평균/최소/최대):{strGap} 순서:{strOrder} 정지중도착:{stopping} 완료후버림:{discarded} " +
+                           $"첫프레임시시리얼대기:{(serial < 0 ? "-" : serial.ToString())} 프레임시작훅:{(m_bFrameStartHooked ? frameStart.ToString() : "-")} 총:{totalMs / 1000.0:F1}s", true);
             }
             catch (Exception ex) { G.WriteLog($"[GrabDiag] CAM{BoardIndex + 1} 요약 실패: {ex.Message}", true); }
         }
@@ -389,7 +378,8 @@ namespace KeocGrabber
             try
             {
                 MatroxGrabber pMain = GCHandle.FromIntPtr(HookDataPtr).Target as MatroxGrabber;
-                if (pMain == null || !GrabDiagLog.On) return 0;
+                // Setup 라이브뷰(연속 촬상)는 기록하지 않는다
+                if (pMain == null || !GrabDiagLog.On || !pMain.m_bDiagProduction) return 0;
                 int n = Interlocked.Increment(ref pMain.m_nDiagFrameStartCount);
                 // n=1 이 Production에서 센서 트리거로 스캔이 시작된 순간
                 GrabDiagLog.Write(n == 1 ? "FRAME_START_1ST" : "FRAME_START", pMain.m_nBoardIndex,
@@ -432,7 +422,7 @@ namespace KeocGrabber
                 }
 
                 // 버퍼(프레임 1장) 수신 순간
-                if (GrabDiagLog.On)
+                if (GrabDiagLog.On && pMain.m_bDiagProduction)
                     GrabDiagLog.Write(pMain.m_bStopping ? "BUF_LATE" : "BUF", pMain.m_nBoardIndex,
                         $"#{pMain.m_nDiagSeq} n={pMain.m_nFrameCount + 1} MilIndex={MilIndex} 준비후 {pMain.m_swDiag.Elapsed.TotalMilliseconds:F1}ms");
 

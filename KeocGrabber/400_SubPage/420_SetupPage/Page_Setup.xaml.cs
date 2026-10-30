@@ -436,7 +436,7 @@ namespace KeocGrabber
         {
             try
             {
-                return string.Equals(Path.GetFullPath(path), Path.GetFullPath(G.SYSTEM.CurrRecipePath),
+                return string.Equals(System.IO.Path.GetFullPath(path), System.IO.Path.GetFullPath(G.SYSTEM.CurrRecipePath),
                                      StringComparison.OrdinalIgnoreCase);
             }
             catch { return false; }

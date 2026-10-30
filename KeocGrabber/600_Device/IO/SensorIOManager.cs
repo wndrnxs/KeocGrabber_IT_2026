@@ -196,8 +196,9 @@ namespace KeocGrabber
                 st.Valid = true;
             }
 
-            // Euresys 전용(폴링 10ms 간격이라 실제 에지보다 최대 10ms 늦게 찍힘)
-            if (bRisingEdge && GrabDiagLog.On) GrabDiagLog.Write("SENSOR_ON", -1, $"BOARD{ch + 1} #{nCount} (폴링 기준, 최대 {POLL_INTERVAL_MS}ms 지연)");
+            // Euresys 전용(폴링 10ms 간격이라 실제 에지보다 최대 10ms 늦게 찍힘).
+            // SensorLogEnable이면 기존 [SENSOR] 로그가 같은 순간을 남기므로 중복 기록하지 않는다.
+            if (bRisingEdge && !G.SYSTEM.SensorLogEnable && GrabDiagLog.On) GrabDiagLog.Write("SENSOR_ON", -1, $"BOARD{ch + 1} #{nCount} (폴링 기준, 최대 {POLL_INTERVAL_MS}ms 지연)");
 
             if (bRisingEdge && G.SYSTEM.SensorLogEnable)
                 G.WriteLog($"[SENSOR] {G.GRABBER.fn_GetSensorLine(ch)} 신호 검출 (BOARD{ch + 1})");

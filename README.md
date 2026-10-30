@@ -244,61 +244,51 @@ IIN11 ──▶ LIN1 ──▶ DelayTool(DEL1) ──▶ StartOfSequenceTriggerS
 - 폴링 방식이라 폴링 주기보다 짧은 펄스는 놓칠 수 있습니다. 또한 grab 스레드가 버퍼를 pop 하는 동안에는 보드 접근이 잠시 막혀(`EGrabber is busy in another thread`) 폴링이 몇 회 건너뛸 수 있으며, 이때는 마지막 값을 유지합니다. **카운트는 신호 유입 확인용 참고값이며 실제 트리거 횟수와 정확히 일치하지 않을 수 있습니다.**
 - **Matrox는 미지원**입니다. `GrabberManager.fn_TryGetSensorInput()`의 `TODO(Matrox)` 위치에 `fn_GetSpecificIO(idx, MIL.M_AUX_IO*)`를 연결하면 동일한 UI를 그대로 사용할 수 있으며, 사용 핀은 실제 배선 확인 후 결정해야 합니다. Matrox 선택 시에는 모니터링이 자동으로 비활성화됩니다.
 
-## 11-1. 촬상 진단 로그 (`[GrabDiag]`, Matrox)
+## 11-1. 촬상 진단 로그 (`GrabDiag`)
 
-현장 이미지를 반출할 수 없는 환경에서 간헐 NG(이미지 상단 약 2000px 누락, 패널 길이 부족 등)의 원인을 로그만으로 가르기 위한 기록입니다. 동작은 바꾸지 않습니다. 로그에서 `[GrabDiag]`로 검색합니다.
+현장 이미지를 반출할 수 없는 환경에서 간헐 NG(이미지 상단 약 2000px 누락, 패널 길이 부족 등)의 원인을 로그만으로 가르기 위한 기록입니다. 촬상 동작은 바꾸지 않습니다.
 
-**START 1회당 1줄** (`Global.GrabStart`)
+**원칙**
+- **기존 로그와 중복하지 않습니다.** 메시지 수신(`Recv Msg`), `Grab Start/Stop`, `Grab Complate`, `Safety Time out`, `[ProcREQ]`, 카메라·조명 명령 큐잉(`set`/`sdg`, `Dawoo Set`), `[SENSOR]`처럼 이미 메인 로그에 남는 사건은 다시 쓰지 않습니다. 진단 로그는 기존 로그 사이의 빈 곳(버퍼 도착, 이미지 행 위치, 실제 전송 시각 등)만 채웁니다. 두 로그는 시각으로 맞춰 봅니다.
+- **촬상에 영향을 주지 않습니다.** 그랩 콜백·시리얼 스레드에서는 메모리 큐에 넣기만 하고(1건 약 1µs), 파일 기록은 낮은 우선순위 백그라운드 스레드가 200ms마다 합니다(`300_Class/GrabDiagLog.cs`). 파일을 열 수 없으면(예: 엑셀이 파일을 잠금) 다음 주기에 다시 시도하고, 큐가 5만 건을 넘으면 기록을 버리고 `LOG_DROPPED`로 개수만 남깁니다. Setup 라이브뷰 프레임은 기록하지 않습니다.
+- **끄기**: `ImageGrabber.xml`의 `<GrabDiagEnable>false</GrabDiagEnable>` (재빌드 불필요, 재시작 필요). 아래 메인 로그 경고, CSV, Matrox 프레임 시작 훅 등록을 모두 하지 않습니다.
+
+### 메인 로그 — 이상이 있을 때만
+
 ```
-[GrabDiag] START 처리: 레시피적용 18ms → 조명 25ms → 그랩준비 31ms, 시리얼대기 CAM:4 조명:6
 [GrabDiag][경고] START 무시: 이전 촬상 진행 중 (GRABSTATE=Grab, MASTER1)
+[GrabDiag][경고] CAM1 #37 준비→첫프레임:842ms 프레임:15/16 간격(평균/최소/최대):185/184/371ms 순서:0,1,2,4,... 정지중도착:0 완료후버림:1 첫프레임시시리얼대기:0 프레임시작훅:16 총:3.6s
 ```
+카메라 요약은 Matrox Production 촬상이 끝날 때 아래 중 하나라도 해당할 때만 남습니다(정상 촬상은 안 남김).
 
-**촬상 종료 시 카메라당 1줄** (`MatroxGrabber.fn_GrabStop`, Production 촬상만)
-```
-[GrabDiag] CAM1 #37 준비→첫프레임:842ms 프레임:16/16 간격(평균/최소/최대):185/184/187ms 순서:OK 정지중도착:0 완료후버림:0 누락(MIL):0 첫프레임시시리얼대기:0 총:3.6s
-```
-이상 항목이 하나라도 있으면 `[GrabDiag][경고]`로 에러 로그가 됩니다.
-
-| 항목 | 의미 | 이상할 때 의심할 것 |
+| 항목 | 의미 | 경고 조건 / 의심할 것 |
 |---|---|---|
-| 준비→첫프레임 | 그랩 준비부터 첫 프레임(청크) 도착까지. 센서 신호 시각 + 프레임 1장 스캔 시간 | 평소보다 길면 센서 감지 지연 또는 두 번째 펄스로 시작 → 상단 잘림 |
-| 프레임 n/N | 받은 프레임 수 / 버퍼 수(이미지 1장 분량) | N 미만이면 프레임 누락 → 해당 높이(DCF 프레임 높이)만큼 이미지에서 빠짐 |
-| 간격 | 프레임 사이 시간 | 최대값이 튀면 그 구간 라인 트리거 누락(노출 > 라인주기) 또는 처리 지연 |
-| 순서 | 도착한 MilIndex 순서 | `OK`가 아니면 도착 순서대로 쌓는 `AttachImage`에서 위치가 어긋남 |
-| 정지중도착 | `M_STOP` 처리 중 늦게 온 프레임 | 0이 아니면 지각 프레임 → 다음 이미지 상단 잔상 가능 |
-| 완료후버림 | 이미지가 이미 완료됐거나 Setup 표시로 새서 붙이지 못한 프레임 | 0이 아니면 프레임이 엉뚱한 촬상으로 감 |
-| 누락(MIL) | `M_PROCESS_FRAME_MISSED` | 0이 아니면 보드 단에서 프레임을 놓침 |
-| 첫프레임시시리얼대기 | 첫 프레임 도착 때 카메라 시리얼 큐에 남은 명령 수 | 0이 아니면 레시피(노출/게인) 명령이 촬상 도중 카메라에 도착 |
-| 프레임시작훅 | 보드가 프레임 스캔을 시작한 횟수(`M_GRAB_FRAME_START`) | 받은 프레임 수와 다르면 시작은 했는데 도착하지 않은 프레임이 있음. 계속 0이면 보드가 이 훅을 지원하지 않는 것 |
+| 준비→첫프레임 | 그랩 준비부터 첫 프레임 도착까지 | (참고값) 평소보다 길면 센서 감지 지연 또는 두 번째 펄스로 시작 |
+| 프레임 n/N | 받은 프레임 수 / 버퍼 수(이미지 1장 분량) | n≠N. 빠진 만큼(DCF 프레임 높이 단위) 이미지에서 빠짐 |
+| 간격 | 프레임 사이 시간 | (참고값) 최대값이 튀면 그 구간 트리거 누락 또는 처리 지연 |
+| 순서 | 도착한 MilIndex 순서 | `OK`가 아님. 도착순으로 쌓는 `AttachImage`에서 위치가 어긋남 |
+| 정지중도착 | `M_STOP` 처리 중 늦게 온 프레임 | 0이 아님. 지각 프레임 |
+| 완료후버림 | 이미 완료된 이미지에 왔거나 Setup 표시로 새서 붙이지 못한 프레임 | 0이 아님. 프레임이 엉뚱한 촬상으로 감 |
+| 첫프레임시시리얼대기 | 첫 프레임 도착 때 카메라 시리얼 큐에 남은 명령 수 | (참고값) 0이 아니면 노출/게인 명령이 스캔 도중 도착 |
+| 프레임시작훅 | 보드가 프레임 스캔을 시작한 횟수 | 받은 프레임 수와 다름. 계속 `0`이면 보드가 `M_GRAB_FRAME_START`를 지원하지 않는 것 |
 
-### 타임라인 로그 (`GrabDiag_yyyyMMdd.csv`)
+### 타임라인 CSV (`LOG/yyyy/MM/dd/GrabDiag_yyyyMMdd.csv`)
 
-요약 한 줄로 부족할 때 보는 **이벤트 단위 기록**입니다. 메인 로그와 같은 날짜 폴더(`LOG/yyyy/MM/dd/`)에 별도 CSV로 남습니다.
-
-- **촬상에 영향을 주지 않도록**: 그랩 콜백·시리얼 스레드 등에서는 메모리 큐에 넣기만 하고, 파일 기록은 낮은 우선순위의 백그라운드 스레드가 200ms마다 합니다(`300_Class/GrabDiagLog.cs`). 큐가 20만 건을 넘으면 기록을 버리고 `LOG_DROPPED`로 개수만 남깁니다(촬상 우선).
-- **끄기**: `ImageGrabber.xml`의 `<GrabDiagEnable>false</GrabDiagEnable>` (재빌드 불필요, 재시작 필요). 끄면 큐 기록과 Matrox 프레임 시작 훅 등록을 모두 하지 않습니다.
-- 컬럼: `Time`(µs), `FromCHECK(ms)`(마지막 START(CHECK) 수신 기준 경과), `Event`, `Cam`, `Detail`
+컬럼: `Time`(µs) · `FromStart(ms)`(그 촬상의 START 처리 시작 기준 경과) · `Event` · `Cam` · `Detail`
 
 | Event | 시점 | 기록 위치 |
 |---|---|---|
-| `CHECK_RECV` / `CHECK_SKIP` | Master의 START(STATE.CHECK) 수신 / 장비 에러로 시작 안 함 | `ProtocallManager` |
-| `START_IGNORED` | 이전 촬상 진행 중이라 START 무시 | `Global.GrabStart` |
-| `ATTACH_RESET` | 누적 위치 0으로 초기화(직전 attach 수·완료 여부 포함) | `ImageManager.InitAttachCount` |
-| `RECIPE_SET` / `LIGHT_ON` / `ARM_ALL` | 레시피·조명 명령 큐잉 완료 / 전체 그랩 준비 완료 | `Global.GrabStart` |
-| `ARM` / `ARM_LIVE` | 카메라별 그랩 준비(트리거 대기 시작) | `MatroxGrabber`·`EuresysGrabber.fn_GrabStart` |
-| `SERIAL_TX` | 시리얼 명령이 **실제로 포트에 쓰인** 순간(카메라 `set 85.8` 등 ASCII, 조명은 HEX) | `SerialComm` 송신 스레드 |
+| `ATTACH_RESET` | START 처리 중 누적 위치를 0으로 초기화. **직전 촬상의 attach 수와 완료 여부**를 남김 | `ImageManager.InitAttachCount` |
+| `SERIAL_PENDING` | 트리거 대기에 들어간 시점에 아직 장비로 안 나간 시리얼 명령 수(카메라/조명) | `Global.GrabStart` |
+| `SERIAL_TX` | 시리얼 명령이 **실제로 포트에 쓰인** 순간(포트, 바이트 수, 남은 큐). 명령 내용은 기존 큐잉 로그와 순서로 대응 | `SerialComm` 송신 스레드 |
 | `FRAME_START_1ST` / `FRAME_START` | (Matrox) 보드가 프레임 스캔을 시작한 순간. 1ST = **센서 트리거로 스캔이 시작된 순간** | MIL `M_GRAB_FRAME_START` 훅 |
-| `SENSOR_ON` / `SENSOR_OFF` | (Euresys) 센서 입력 상승/하강(10ms 폴링 기준) | `SensorIOManager` |
-| `BUF` / `BUF_LATE` | 버퍼(프레임 1장) 수신. LATE = `M_STOP` 처리 중 도착 | 그랩 콜백 |
-| `ATTACH` | 그 버퍼가 결과 이미지의 **몇 행에 쌓였는지**(attach 순번, MilIndex) | `ImageManager.AttachImage` |
+| `BUF` / `BUF_LATE` | 버퍼(프레임 1장) 수신, 그랩 준비 후 경과 시간. LATE = `M_STOP` 처리 중 도착 | 그랩 콜백 (Matrox·Euresys) |
+| `ATTACH` | 그 버퍼가 결과 이미지의 **몇 행에 쌓였는지**(attach 순번, MilIndex, 행 범위) | `ImageManager.AttachImage` |
 | `DISCARD` | 이미지에 붙이지 않고 버린 버퍼와 이유 | `GrabberManager.fn_OnGrab` |
-| `IMAGE_COMPLETE` | 이미지 완료 | `ImageManager` |
-| `STOP_REQ` / `STOP_DONE` | 그랩 정지 요청 / 완료 | 그래버 |
-| `SAFETY_TIMEOUT` / `GRAB_STOP_ALL` | 안전 타이머 만료 / 전체 정지 | `Global` |
-| `REQ_RECV` / `REQ_SEND` / `REQ_DROP` | 이미지 요청 수신(CELL ID) / 완료 이미지로 처리 / 300초 미완료로 폐기 | `MessageManager` |
+| `SENSOR_ON` / `SENSOR_OFF` | (Euresys) 센서 상승 에지(`SensorLogEnable=false`일 때만, 켜져 있으면 기존 `[SENSOR]` 로그) / 하강 에지와 펄스 폭 | `SensorIOManager` |
+| `LOG_DROPPED` | 큐가 가득 차 기록하지 못한 건수 | `GrabDiagLog` |
 
-읽는 예: NG 셀의 `REQ_SEND` 줄에서 CELL ID로 촬상을 찾고, 같은 카메라의 `FRAME_START_1ST` → `BUF`×N → `ATTACH`(행 위치) → `IMAGE_COMPLETE` 순서와 간격을 정상 셀과 비교합니다. `ATTACH`의 MilIndex가 0부터 순서대로가 아니거나, `BUF_LATE`·`DISCARD`가 끼어 있거나, `FRAME_START_1ST`가 `ARM`보다 비정상적으로 늦으면 그 지점이 원인 후보입니다.
+읽는 예: 메인 로그의 `[ProcREQ] CELL | idx`로 NG 셀의 시각을 찾고, 그 앞의 CSV에서 해당 카메라의 `ATTACH_RESET` → `FRAME_START_1ST` → `BUF`×N → `ATTACH`(행 위치) 흐름을 정상 셀과 비교합니다. `ATTACH`의 MilIndex가 0부터 순서대로가 아니거나, `BUF_LATE`·`DISCARD`가 끼어 있거나, `ATTACH_RESET`에서 직전 촬상이 미완료였거나, `FRAME_START_1ST`가 평소보다 늦으면 그 지점이 원인 후보입니다.
 
 ## 12. 빌드 방법
 

@@ -334,16 +334,6 @@ namespace KeocGrabber
             return bRet;
         }
 
-        // 사람이 읽을 수 있는 명령(카메라 ASCII)은 그대로, 바이너리(조명)는 HEX로. 최대 32바이트.
-        private static string fn_DiagText(byte[] buff)
-        {
-            int n = Math.Min(buff.Length, 32);
-            bool bAscii = true;
-            for (int i = 0; i < n; i++)
-                if ((buff[i] < 0x20 || buff[i] > 0x7E) && buff[i] != 0x0D && buff[i] != 0x0A) { bAscii = false; break; }
-            return bAscii ? Encoding.ASCII.GetString(buff, 0, n).Trim() : BitConverter.ToString(buff, 0, n);
-        }
-
         private void THREAD_SENDDATA()
         {
             while (bWork)
@@ -357,8 +347,9 @@ namespace KeocGrabber
                         if (m_sPort.IsOpen)
                         {
                             m_sPort.Write(buff, 0, buff.Length);
-                            // 큐잉이 아니라 실제로 포트에 쓴 순간(카메라 노출/게인, 조명 명령이 장비에 도착하는 시점)
-                            if (GrabDiagLog.On) GrabDiagLog.Write("SERIAL_TX", -1, $"{strConnPort} {fn_DiagText(buff)} 남은큐 {m_queCMD.Count}");
+                            // 큐잉이 아니라 실제로 포트에 쓴 순간. 명령 내용은 큐잉 시점의 기존 로그(set/sdg, Dawoo Set)에 있으므로
+                            // 여기서는 포트와 남은 큐 수만 남긴다(같은 포트는 FIFO라 순서로 대응됨).
+                            if (GrabDiagLog.On) GrabDiagLog.Write("SERIAL_TX", -1, $"{strConnPort} {buff.Length}B 남은큐 {m_queCMD.Count}");
                         }
                         m_mutex.ReleaseMutex();
                         Thread.Sleep(G.SYSTEM.SerialDelay);

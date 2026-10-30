@@ -277,6 +277,7 @@ namespace KeocGrabber
         {
             if (GRABSTATE != EN_GRABSTATE.Grab)
             {
+                GrabDiagLog.MarkStart();
                 SetCurrRecipe();
 
                 for (int i = 0; i < G.SYSTEM.CamCount; i++) {
@@ -303,11 +304,9 @@ namespace KeocGrabber
             {
                 if (type == ProtocallManager.ServerType.MASTER1)
                 {
-                    // [GrabDiag] START 수신 → 그랩 준비 완료까지의 구간 시간과 시리얼 대기 명령 수
-                    var swDiag = System.Diagnostics.Stopwatch.StartNew();
+                    // 진단 타임라인 기준 시각(START 처리 시작). 파일에는 줄을 쓰지 않는다(수신 로그는 기존 Recv Msg).
+                    GrabDiagLog.MarkStart();
                     SetCurrRecipe();
-                    double dRecipeMs = swDiag.Elapsed.TotalMilliseconds;
-                    GrabDiagLog.Write("RECIPE_SET", -1, $"레시피 명령 큐잉 완료 {dRecipeMs:F1}ms");
 
                     for (int i = 0; i < G.SYSTEM.CamCount; i++)
                     {
@@ -322,11 +321,10 @@ namespace KeocGrabber
                         LIGHT.fn_LightOn(G.SYSTEM.CamCount + 2);
                         LIGHT.fn_LightOn(G.SYSTEM.CamCount + 3);
                     }
-                    double dLightMs = swDiag.Elapsed.TotalMilliseconds;
-                    GrabDiagLog.Write("LIGHT_ON", -1, $"조명 명령 큐잉 완료 {dLightMs:F1}ms");
                     GRABBER.fn_GrabStart();
-                    double dArmMs = swDiag.Elapsed.TotalMilliseconds;
-                    GrabDiagLog.Write("ARM_ALL", -1, $"전체 그랩 준비 완료 {dArmMs:F1}ms");
+                    // 트리거 대기에 들어간 시점에 아직 장비로 안 나간 시리얼 명령 수(레시피 노출/게인, 조명).
+                    // 0이 아니면 그 명령들이 스캔 도중에 장비에 도착한다(SERIAL_TX로 실제 시각 확인).
+                    if (GrabDiagLog.On) GrabDiagLog.Write("SERIAL_PENDING", -1, $"CAM:{fn_DiagCamPending()} 조명:{LIGHT.PendingCount}");
 
                     if (G.SYSTEM.GrabTimeout > 0)
                     {
@@ -336,22 +334,24 @@ namespace KeocGrabber
                     }
 
                     GRABSTATE = EN_GRABSTATE.Grab;
-
-                    int nCamPending = 0;
-                    if (CAMERA != null)
-                        for (int i = 0; i < CAMERA.Length; i++)
-                            if (CAMERA[i] != null) nCamPending += CAMERA[i].PendingCount;
-                    G.WriteLog($"[GrabDiag] START 처리: 레시피적용 {dRecipeMs:F0}ms → 조명 {dLightMs:F0}ms → 그랩준비 {dArmMs:F0}ms, " +
-                               $"시리얼대기 CAM:{nCamPending} 조명:{LIGHT.PendingCount}");
                 }
 
             }
-            else if (type == ProtocallManager.ServerType.MASTER1)
+            else if (type == ProtocallManager.ServerType.MASTER1 && G.SYSTEM.GrabDiagEnable)
             {
                 // 이전 촬상이 아직 끝나지 않아 이번 START가 무시됨 → 이번 패널은 촬상되지 않는다
                 G.WriteLog($"[GrabDiag][경고] START 무시: 이전 촬상 진행 중 (GRABSTATE={GRABSTATE}, {type})", true);
-                GrabDiagLog.Write("START_IGNORED", -1, $"이전 촬상 진행 중 GRABSTATE={GRABSTATE}");
             }
+        }
+
+        // 카메라 시리얼 큐에 남은 명령 수(진단용). Euresys는 시리얼 카메라를 쓰지 않으므로 0.
+        static private int fn_DiagCamPending()
+        {
+            int n = 0;
+            if (CAMERA != null)
+                for (int i = 0; i < CAMERA.Length; i++)
+                    if (CAMERA[i] != null) n += CAMERA[i].PendingCount;
+            return n;
         }
 
         static public void SetCurrRecipe()
@@ -393,7 +393,6 @@ namespace KeocGrabber
         static public void GrabStop()
         {
             m_SafetyTimer.Stop();
-            GrabDiagLog.Write("GRAB_STOP_ALL", -1, $"GRABSTATE={GRABSTATE}");
 
             if (GRABSTATE == EN_GRABSTATE.Grab)
             {
@@ -488,7 +487,6 @@ namespace KeocGrabber
         static private void OnSafetyTimeOut(object sender, System.Timers.ElapsedEventArgs e)
         {
             G.WriteLog("[Warning] Safety Time out!", true);
-            GrabDiagLog.Write("SAFETY_TIMEOUT", -1, $"{G.SYSTEM.GrabTimeout}ms 경과, GrabStop 호출");
             GrabStop();
         }
     }

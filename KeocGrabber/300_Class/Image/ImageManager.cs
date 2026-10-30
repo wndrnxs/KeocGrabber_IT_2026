@@ -194,7 +194,6 @@ namespace KeocGrabber
             //    G.WriteLog($"[Error] Cell ID Empty.", true);
             //}
             m_bIsImageComplate[index] = true;
-            if (GrabDiagLog.On) GrabDiagLog.Write("IMAGE_COMPLETE", index, $"attach {m_nAttachCount[index]}개로 {m_nGrabHeight}행 완료");
 
             // MessageManager.fn_ProcRequest로 이동.
             //G.DISKMANAGER.PushSaveImage(index, m_matCamImgage[index], strlotid);
