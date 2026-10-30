@@ -25,6 +25,7 @@ namespace KeocGrabber
         public string Comport { get { return m_comm.ConnPort; } }
 
         public bool IsConnected { get { return m_comm != null ? m_comm.IsConnected : false; } }
+        public int PendingCount { get { return m_comm != null ? m_comm.PendingCount : 0; } }
 
         bool m_bUpdated = false;
         int m_nRecieveTimeout = 5000;

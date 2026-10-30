@@ -18,6 +18,8 @@ namespace KeocGrabber
         DawooLight mc_DawooLight = new DawooLight();
 
         public int TopLightCount { get { return mc_DawooLight.CtrlCount; } }
+        // 조명 시리얼 큐에 남은 명령 수(진단용)
+        public int PendingCount { get { return mc_DawooLight.PendingCount + mc_VitLight.PendingCount; } }
         public int Light_CTRL_CH_Count = 2;
 
         // ── 구성별 조명 대수 ────────────────────────────────────────────────────

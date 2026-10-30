@@ -301,7 +301,10 @@ namespace KeocGrabber
             {
                 if (type == ProtocallManager.ServerType.MASTER1)
                 {
+                    // [GrabDiag] START 수신 → 그랩 준비 완료까지의 구간 시간과 시리얼 대기 명령 수
+                    var swDiag = System.Diagnostics.Stopwatch.StartNew();
                     SetCurrRecipe();
+                    double dRecipeMs = swDiag.Elapsed.TotalMilliseconds;
 
                     for (int i = 0; i < G.SYSTEM.CamCount; i++)
                     {
@@ -316,7 +319,9 @@ namespace KeocGrabber
                         LIGHT.fn_LightOn(G.SYSTEM.CamCount + 2);
                         LIGHT.fn_LightOn(G.SYSTEM.CamCount + 3);
                     }
+                    double dLightMs = swDiag.Elapsed.TotalMilliseconds;
                     GRABBER.fn_GrabStart();
+                    double dArmMs = swDiag.Elapsed.TotalMilliseconds;
 
                     if (G.SYSTEM.GrabTimeout > 0)
                     {
@@ -326,8 +331,20 @@ namespace KeocGrabber
                     }
 
                     GRABSTATE = EN_GRABSTATE.Grab;
+
+                    int nCamPending = 0;
+                    if (CAMERA != null)
+                        for (int i = 0; i < CAMERA.Length; i++)
+                            if (CAMERA[i] != null) nCamPending += CAMERA[i].PendingCount;
+                    G.WriteLog($"[GrabDiag] START 처리: 레시피적용 {dRecipeMs:F0}ms → 조명 {dLightMs:F0}ms → 그랩준비 {dArmMs:F0}ms, " +
+                               $"시리얼대기 CAM:{nCamPending} 조명:{LIGHT.PendingCount}");
                 }
 
+            }
+            else if (type == ProtocallManager.ServerType.MASTER1)
+            {
+                // 이전 촬상이 아직 끝나지 않아 이번 START가 무시됨 → 이번 패널은 촬상되지 않는다
+                G.WriteLog($"[GrabDiag][경고] START 무시: 이전 촬상 진행 중 (GRABSTATE={GRABSTATE}, {type})", true);
             }
         }
 

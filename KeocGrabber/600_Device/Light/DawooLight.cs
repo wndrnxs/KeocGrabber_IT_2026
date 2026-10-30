@@ -22,6 +22,7 @@ namespace KeocGrabber
         public bool this[int index] { get { return (index >= 0 && m_listComm.Count > index) ? m_listComm[index].IsConnected : false; } }
 
         public int CtrlCount { get { return m_listComm.Count; } }
+        public int PendingCount { get { return m_listComm.Sum(c => c.PendingCount); } }
 
         int m_nRecieveTimeout = 3000;
 

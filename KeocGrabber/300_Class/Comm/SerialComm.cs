@@ -37,6 +37,8 @@ namespace KeocGrabber
 
         private bool bWork = false;
         private Queue<byte[]> m_queCMD = new Queue<byte[]> ();
+        // 아직 전송되지 않은 명령 수(진단용 근사치)
+        public int PendingCount { get { return m_queCMD.Count; } }
         private Mutex m_mutex = new Mutex();
 
         private Thread m_thread = null;

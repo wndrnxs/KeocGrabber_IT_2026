@@ -6,6 +6,7 @@
  */
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
@@ -45,6 +46,24 @@ namespace KeocGrabber
 
         int m_nBoardIndex = 0;
         int m_nCameraIndex = 0;
+
+        // ── 촬상 진단([GrabDiag]) ─────────────────────────────────────────────
+        // 그랩 콜백에서는 값만 기록하고 로그는 fn_GrabStop에서 카메라당 한 줄로 남긴다.
+        // (G.WriteLog는 파일+UI까지 가므로 콜백 안에서 쓰면 프레임 처리가 늦어질 수 있음)
+        int m_nDiagSeq = 0;
+        bool m_bDiagProduction = false;
+        readonly Stopwatch m_swDiag = new Stopwatch();
+        readonly object m_lockDiag = new object();
+        readonly List<int> m_listDiagIndex = new List<int>();
+        readonly List<double> m_listDiagMs = new List<double>();
+        int m_nDiagFirstSerialPending = -1;
+        volatile bool m_bStopping = false;
+        int m_nDiagFramesWhileStopping = 0;
+        int m_nDiagDiscarded = 0;
+
+        /// <summary>도착했지만 이미지에 붙이지 않고 버린 프레임 수(이미 완료된 이미지에 온 프레임). GrabberManager가 올린다.</summary>
+        public void fn_DiagAddDiscarded() { lock (m_lockDiag) m_nDiagDiscarded++; }
+        public bool IsDiagProduction { get { return m_bDiagProduction; } }
 
         MIL_ID m_MilApplication = MIL.M_NULL;         // Application identifier.
         MIL_ID m_MilSystem = MIL.M_NULL;              // System identifier.
@@ -239,6 +258,17 @@ namespace KeocGrabber
         public void fn_GrabStart(bool bSetup = false)
         {
             m_nFrameCount = 0;
+            lock (m_lockDiag)
+            {
+                m_nDiagSeq++;
+                m_bDiagProduction = !bSetup;
+                m_listDiagIndex.Clear();
+                m_listDiagMs.Clear();
+                m_nDiagFirstSerialPending = -1;
+                m_nDiagFramesWhileStopping = 0;
+                m_nDiagDiscarded = 0;
+                m_swDiag.Restart();
+            }
             if (bSetup)
             {
                 MIL.MdigControl(m_MilDigitizer, MIL.M_GRAB_TRIGGER_STATE, MIL.M_DISABLE); // sw trigger?
@@ -261,9 +291,67 @@ namespace KeocGrabber
 
         public void fn_GrabStop()
         {
+            // M_STOP은 이미 채워진 버퍼의 콜백이 끝날 때까지 기다린다 → 그 사이 도착한 프레임을 지각 프레임으로 센다.
+            m_bStopping = true;
             MIL.MdigProcess(m_MilDigitizer, m_MilBuffer, m_MilBuffer.Length, MIL.M_STOP, MIL.M_DEFAULT, UserHookFunctionDelegate, GCHandle.ToIntPtr(hUserData));
+            m_bStopping = false;
             m_bIsGrabbing = false;
             delLog?.Invoke($"Grab Stop.({BoardIndex})");
+            fn_WriteDiagSummary();
+        }
+
+        private void fn_WriteDiagSummary()
+        {
+            try
+            {
+                if (!m_bDiagProduction) return;   // Setup 라이브뷰는 요약하지 않음
+                m_bDiagProduction = false;        // 같은 촬상에 대해 Stop이 두 번 불려도 한 번만
+
+                int nExpected = m_MilBuffer != null ? m_MilBuffer.Length : 0;
+                int[] idx; double[] ms; int stopping, discarded, serial;
+                double totalMs;
+                lock (m_lockDiag)
+                {
+                    idx = m_listDiagIndex.ToArray();
+                    ms = m_listDiagMs.ToArray();
+                    stopping = m_nDiagFramesWhileStopping;
+                    discarded = m_nDiagDiscarded;
+                    serial = m_nDiagFirstSerialPending;
+                    totalMs = m_swDiag.Elapsed.TotalMilliseconds;
+                }
+
+                string strFirst = ms.Length > 0 ? $"{ms[0]:F0}ms" : "-";
+                string strGap = "-";
+                if (ms.Length > 1)
+                {
+                    double min = double.MaxValue, max = 0, sum = 0;
+                    for (int i = 1; i < ms.Length; i++)
+                    {
+                        double g = ms[i] - ms[i - 1];
+                        sum += g; if (g < min) min = g; if (g > max) max = g;
+                    }
+                    strGap = $"{sum / (ms.Length - 1):F0}/{min:F0}/{max:F0}ms";
+                }
+
+                bool bOrderOk = true;
+                for (int i = 0; i < idx.Length; i++) if (idx[i] != i) { bOrderOk = false; break; }
+                string strOrder = bOrderOk ? "OK" : string.Join(",", idx);
+
+                string strMissed = "-";
+                try
+                {
+                    MIL_INT nMissed = 0;
+                    MIL.MdigInquire(m_MilDigitizer, MIL.M_PROCESS_FRAME_MISSED, ref nMissed);
+                    strMissed = nMissed.ToString();
+                }
+                catch { }
+
+                bool bWarn = idx.Length != nExpected || !bOrderOk || stopping > 0 || discarded > 0 || (strMissed != "-" && strMissed != "0");
+                G.WriteLog($"[GrabDiag]{(bWarn ? "[경고]" : "")} CAM{BoardIndex + 1} #{m_nDiagSeq} 준비→첫프레임:{strFirst} 프레임:{idx.Length}/{nExpected} " +
+                           $"간격(평균/최소/최대):{strGap} 순서:{strOrder} 정지중도착:{stopping} 완료후버림:{discarded} 누락(MIL):{strMissed} " +
+                           $"첫프레임시시리얼대기:{(serial < 0 ? "-" : serial.ToString())} 총:{totalMs / 1000.0:F1}s", bWarn);
+            }
+            catch (Exception ex) { G.WriteLog($"[GrabDiag] CAM{BoardIndex + 1} 요약 실패: {ex.Message}", true); }
         }
 
         static private MIL_INT OnGrabbedImage(MIL_INT HookType, MIL_ID HookId, IntPtr HookDataPtr)
@@ -282,6 +370,22 @@ namespace KeocGrabber
             //if (pMain.m_MilBuffer[MilIndex] != MIL.M_NULL)
             if (MilGrabBufID != MIL.M_NULL)
             {
+                lock (pMain.m_lockDiag)
+                {
+                    if (pMain.m_bStopping) pMain.m_nDiagFramesWhileStopping++;
+                    if (pMain.m_listDiagIndex.Count < 256)
+                    {
+                        pMain.m_listDiagIndex.Add((int)MilIndex);
+                        pMain.m_listDiagMs.Add(pMain.m_swDiag.Elapsed.TotalMilliseconds);
+                    }
+                    if (pMain.m_nDiagFirstSerialPending < 0)
+                    {
+                        int nCam = pMain.m_nBoardIndex;
+                        pMain.m_nDiagFirstSerialPending =
+                            (G.CAMERA != null && nCam < G.CAMERA.Length && G.CAMERA[nCam] != null) ? G.CAMERA[nCam].PendingCount : 0;
+                    }
+                }
+
                 if (pMain.m_databuff != null) Array.Clear(pMain.m_databuff, 0, pMain.m_databuff.Length);
 
                 if (pMain.m_MilImageType == 3)

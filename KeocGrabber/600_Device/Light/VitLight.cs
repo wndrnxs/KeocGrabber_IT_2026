@@ -20,6 +20,7 @@ namespace KeocGrabber
         SerialComm serialComm = new SerialComm();
 
         public bool IsConnected { get { return serialComm.IsConnected; } }
+        public int PendingCount { get { return serialComm.PendingCount; } }
 
         int m_nRecieveTimeout = 3000;
 
