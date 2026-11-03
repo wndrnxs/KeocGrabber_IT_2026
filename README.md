@@ -280,13 +280,21 @@ IIN11 ──▶ LIN1 ──▶ DelayTool(DEL1) ──▶ StartOfSequenceTriggerS
 |---|---|---|
 | `ATTACH_RESET` | START 처리 중 누적 위치를 0으로 초기화. **직전 촬상의 attach 수와 완료 여부**를 남김 | `ImageManager.InitAttachCount` |
 | `SERIAL_PENDING` | 트리거 대기에 들어간 시점에 아직 장비로 안 나간 시리얼 명령 수(카메라/조명) | `Global.GrabStart` |
-| `SERIAL_TX` | 시리얼 명령이 **실제로 포트에 쓰인** 순간(포트, 바이트 수, 남은 큐). 명령 내용은 기존 큐잉 로그와 순서로 대응 | `SerialComm` 송신 스레드 |
+| `SERIAL_TX` | 시리얼 명령이 **실제로 포트에 쓰인** 순간. 장비 이름(`LIGHT1`~, `LIGHT_BOT`, `CAM1`~)과 명령 종류(조명 `SET`/`ON`/`OFF`, 카메라 `set`/`sdg` 등), 남은 큐. 예: `LIGHT1(COM1) ON 5B 남은큐 0` | `SerialComm` 송신 스레드 |
 | `FRAME_START_1ST` / `FRAME_START` | (Matrox) 보드가 프레임 스캔을 시작한 순간. 1ST = **센서 트리거로 스캔이 시작된 순간** | MIL `M_GRAB_FRAME_START` 훅 |
-| `BUF` / `BUF_LATE` | 버퍼(프레임 1장) 수신, 그랩 준비 후 경과 시간. LATE = `M_STOP` 처리 중 도착 | 그랩 콜백 (Matrox·Euresys) |
+| `BUF` / `BUF_LATE` / `BUF_AFTER_STOP` | 버퍼(프레임 1장) 수신, 그랩 준비 후 경과 시간. LATE = `M_STOP` 처리 중 도착, AFTER_STOP = 정지가 끝난 뒤 도착(다음 촬상에 섞일 수 있음) | 그랩 콜백 (Matrox·Euresys) |
 | `ATTACH` | 그 버퍼가 결과 이미지의 **몇 행에 쌓였는지**(attach 순번, MilIndex, 행 범위) | `ImageManager.AttachImage` |
 | `DISCARD` | 이미지에 붙이지 않고 버린 버퍼와 이유 | `GrabberManager.fn_OnGrab` |
 | `SENSOR_ON` / `SENSOR_OFF` | (Euresys) 센서 상승 에지(`SensorLogEnable=false`일 때만, 켜져 있으면 기존 `[SENSOR]` 로그) / 하강 에지와 펄스 폭 | `SensorIOManager` |
 | `LOG_DROPPED` | 큐가 가득 차 기록하지 못한 건수 | `GrabDiagLog` |
+
+**가설별 확인 방법**
+
+| 가설 | 확인 |
+|---|---|
+| 타임아웃 후 늦은 프레임 | `BUF_LATE`·`BUF_AFTER_STOP` 유무, 메인 로그 `정지중도착`. 미완료 촬상의 요청이 다음 패널 이미지로 응답됐는지는 `[ProcREQ]` 시각과 그 카메라의 `ATTACH_RESET`·`Grab Complate` 순서로 확인 |
+| Setup 표시/완료 이미지로 샌 프레임 | `DISCARD`(이유 포함), 메인 로그 `완료후버림` |
+| 조명 ON이 스캔 시작보다 늦음 | 같은 촬상에서 `SERIAL_TX LIGHT1 ... ON` 시각과 `FRAME_START_1ST` CAM1 시각 비교. ON이 늦으면 첫 부분이 조명 없이 찍힘. 프레임 시작 훅이 없는 보드면 첫 `BUF` 시각에서 프레임 1장 스캔 시간을 빼서 비교 |
 
 읽는 예: 메인 로그의 `[ProcREQ] CELL | idx`로 NG 셀의 시각을 찾고, 그 앞의 CSV에서 해당 카메라의 `ATTACH_RESET` → `FRAME_START_1ST` → `BUF`×N → `ATTACH`(행 위치) 흐름을 정상 셀과 비교합니다. `ATTACH`의 MilIndex가 0부터 순서대로가 아니거나, `BUF_LATE`·`DISCARD`가 끼어 있거나, `ATTACH_RESET`에서 직전 촬상이 미완료였거나, `FRAME_START_1ST`가 평소보다 늦으면 그 지점이 원인 후보입니다.
 

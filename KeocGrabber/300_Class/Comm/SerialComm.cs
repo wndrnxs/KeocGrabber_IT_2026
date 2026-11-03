@@ -39,6 +39,9 @@ namespace KeocGrabber
         private Queue<byte[]> m_queCMD = new Queue<byte[]> ();
         // 아직 전송되지 않은 명령 수(진단용 근사치)
         public int PendingCount { get { return m_queCMD.Count; } }
+        // 진단 로그용 장비 이름(예: LIGHT1, CAM1)과 명령 종류 해석기. 설정 안 하면 포트 이름/바이트 수만 남긴다.
+        public string DiagName { get; set; }
+        public Func<byte[], string> DiagDescribe { get; set; }
         private Mutex m_mutex = new Mutex();
 
         private Thread m_thread = null;
@@ -349,7 +352,12 @@ namespace KeocGrabber
                             m_sPort.Write(buff, 0, buff.Length);
                             // 큐잉이 아니라 실제로 포트에 쓴 순간. 명령 내용은 큐잉 시점의 기존 로그(set/sdg, Dawoo Set)에 있으므로
                             // 여기서는 포트와 남은 큐 수만 남긴다(같은 포트는 FIFO라 순서로 대응됨).
-                            if (GrabDiagLog.On) GrabDiagLog.Write("SERIAL_TX", -1, $"{strConnPort} {buff.Length}B 남은큐 {m_queCMD.Count}");
+                            if (GrabDiagLog.On)
+                            {
+                                string strKind = "";
+                                try { strKind = DiagDescribe?.Invoke(buff) ?? ""; } catch { }
+                                GrabDiagLog.Write("SERIAL_TX", -1, $"{DiagName ?? strConnPort}({strConnPort}) {strKind} {buff.Length}B 남은큐 {m_queCMD.Count}");
+                            }
                         }
                         m_mutex.ReleaseMutex();
                         Thread.Sleep(G.SYSTEM.SerialDelay);

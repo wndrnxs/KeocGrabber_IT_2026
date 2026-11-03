@@ -206,6 +206,7 @@ namespace KeocGrabber
             for (int i = 0; i < G.SYSTEM.CamCount; i++)
             {
                 CAMERA[i] = new VieworksCamera();
+                CAMERA[i].DiagName = $"CAM{i + 1}";
             }
 
             // Euresys: GenICam Remote으로 파라미터 제어 — 시리얼 카메라 통신 불필요

@@ -26,6 +26,15 @@ namespace KeocGrabber
 
         public bool IsConnected { get { return m_comm != null ? m_comm.IsConnected : false; } }
         public int PendingCount { get { return m_comm != null ? m_comm.PendingCount : 0; } }
+        // 진단 로그에 남길 장비 이름(CAM1 등). 명령 종류는 명령어 앞부분(set/sdg 등)만 남긴다.
+        public string DiagName { set { if (m_comm != null) { m_comm.DiagName = value; m_comm.DiagDescribe = fn_DiagDescribe; } } }
+        static string fn_DiagDescribe(byte[] b)
+        {
+            if (b == null || b.Length == 0) return "";
+            int n = 0;
+            while (n < b.Length && n < 8 && b[n] > 0x20 && b[n] < 0x7f) n++;
+            return n > 0 ? System.Text.Encoding.ASCII.GetString(b, 0, n) : "";
+        }
 
         bool m_bUpdated = false;
         int m_nRecieveTimeout = 5000;

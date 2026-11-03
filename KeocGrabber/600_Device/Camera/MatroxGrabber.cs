@@ -51,7 +51,8 @@ namespace KeocGrabber
         // 그랩 콜백에서는 값만 기록하고 로그는 fn_GrabStop에서 카메라당 한 줄로 남긴다.
         // (G.WriteLog는 파일+UI까지 가므로 콜백 안에서 쓰면 프레임 처리가 늦어질 수 있음)
         int m_nDiagSeq = 0;
-        bool m_bDiagProduction = false;
+        bool m_bDiagProduction = false;   // 요약 1회 출력용(요약 후 false)
+        bool m_bDiagSetup = false;        // Setup 라이브뷰 촬상 여부(라이브 프레임은 기록하지 않음)
         readonly Stopwatch m_swDiag = new Stopwatch();
         readonly object m_lockDiag = new object();
         readonly List<int> m_listDiagIndex = new List<int>();
@@ -285,6 +286,7 @@ namespace KeocGrabber
             {
                 m_nDiagSeq++;
                 m_bDiagProduction = !bSetup;
+                m_bDiagSetup = bSetup;
                 m_listDiagIndex.Clear();
                 m_listDiagMs.Clear();
                 m_nDiagFirstSerialPending = -1;
@@ -379,7 +381,7 @@ namespace KeocGrabber
             {
                 MatroxGrabber pMain = GCHandle.FromIntPtr(HookDataPtr).Target as MatroxGrabber;
                 // Setup 라이브뷰(연속 촬상)는 기록하지 않는다
-                if (pMain == null || !GrabDiagLog.On || !pMain.m_bDiagProduction) return 0;
+                if (pMain == null || !GrabDiagLog.On || pMain.m_bDiagSetup) return 0;
                 int n = Interlocked.Increment(ref pMain.m_nDiagFrameStartCount);
                 // n=1 이 Production에서 센서 트리거로 스캔이 시작된 순간
                 GrabDiagLog.Write(n == 1 ? "FRAME_START_1ST" : "FRAME_START", pMain.m_nBoardIndex,
@@ -422,8 +424,9 @@ namespace KeocGrabber
                 }
 
                 // 버퍼(프레임 1장) 수신 순간
-                if (GrabDiagLog.On && pMain.m_bDiagProduction)
-                    GrabDiagLog.Write(pMain.m_bStopping ? "BUF_LATE" : "BUF", pMain.m_nBoardIndex,
+                // BUF_LATE = M_STOP 처리 중 도착, BUF_AFTER_STOP = 정지가 끝난 뒤 도착(다음 촬상 누적에 섞일 수 있는 프레임)
+                if (GrabDiagLog.On && !pMain.m_bDiagSetup)
+                    GrabDiagLog.Write(pMain.m_bStopping ? "BUF_LATE" : (pMain.m_bIsGrabbing ? "BUF" : "BUF_AFTER_STOP"), pMain.m_nBoardIndex,
                         $"#{pMain.m_nDiagSeq} n={pMain.m_nFrameCount + 1} MilIndex={MilIndex} 준비후 {pMain.m_swDiag.Elapsed.TotalMilliseconds:F1}ms");
 
                 if (pMain.m_databuff != null) Array.Clear(pMain.m_databuff, 0, pMain.m_databuff.Length);

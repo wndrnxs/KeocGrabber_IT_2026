@@ -24,6 +24,15 @@ namespace KeocGrabber
         public int CtrlCount { get { return m_listComm.Count; } }
         public int PendingCount { get { return m_listComm.Sum(c => c.PendingCount); } }
 
+        // 진단 로그용: DAWOO 명령 종류(값 설정 / ON / OFF). 명령 형식은 SetLightValue·LightOn·LightOff와 같음.
+        static string fn_DiagDescribe(byte[] b)
+        {
+            if (b == null || b.Length < 4 || b[0] != 0xff) return "";
+            if (b[1] == 0x01) return "SET";
+            if (b[1] == 0x02) return b[3] == 0x01 ? "ON" : "OFF";
+            return "";
+        }
+
         int m_nRecieveTimeout = 3000;
 
         // 상부 조명 컨트롤러 최대 대수(포트/버퍼 배열 크기)
@@ -59,6 +68,8 @@ namespace KeocGrabber
             for (int i = 0; i < nCount; i++)
             {
                 m_listComm.Add(new SerialComm());
+                m_listComm[i].DiagName = $"LIGHT{i + 1}";
+                m_listComm[i].DiagDescribe = fn_DiagDescribe;
 
                 bRet[i] = m_listComm[i].Open(G.SYSTEM.fn_GetLightPortTop(i), 9600, 8, Parity.None, StopBits.One);
                 m_listComm[i].ReciveDataevent = delRecv[i];

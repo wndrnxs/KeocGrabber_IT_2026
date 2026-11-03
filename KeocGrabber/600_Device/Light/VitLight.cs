@@ -45,6 +45,7 @@ namespace KeocGrabber
         {
             bool bRet = false;
 
+            serialComm.DiagName = "LIGHT_BOT";
             bRet = serialComm.Open(G.SYSTEM.LightPortBot1, 9600, 8, Parity.None, StopBits.One);
 
             serialComm.ReciveDataevent = RecvData1;
